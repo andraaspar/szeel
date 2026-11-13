@@ -1,0 +1,29 @@
+image width=800 height=600
+
+// Frontmost path: an open curve, warm on the left, cool on the right.
+path {
+    point 100 500
+    point 400 150
+    point 700 500
+
+    gradient 1.5 {
+        stop 0  0.75 0.18 40
+        stop 60 0.75 0.18 40 0.0
+    }
+    gradient 3.5 {
+        stop 0  0.55 0.12 250
+        stop 80 0.55 0.12 250 0.0
+    }
+}
+
+// Behind it: a closed path, painted only on its left side, filling the rest
+// of the image (its last stop is opaque).
+path closed=#true {
+    point 200 200
+    point 600 200
+    point 400 450
+
+    gradient 1 {
+        stop 0 0.95 0.02 90
+    }
+}

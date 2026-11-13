@@ -4,7 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-anyhow = "1.0.104"
 kdl = "6.7.1"
 miette = { version = "7.6.0", features = ["fancy"] }
 png = "0.18.1"
@@ -17,3 +16,7 @@ criterion = "0.8.2"
 lto = "fat"
 codegen-units = 1
 panic = "abort"
+
+[[bench]]
+name = "render"
+harness = false

@@ -3,8 +3,8 @@
 Renders PNG images from a text file that describes them as gradient-coloured
 paths built with Hobby's algorithm.
 
-> **Status:** early development. The command-line interface exists, but
-> rendering is not implemented yet. See [plan.md](plan.md) for the design.
+> **Status:** early development. Everything in [plan.md](plan.md) is
+> implemented on the CPU. See `examples/` for sample inputs.
 
 ## Prerequisites
 
@@ -58,4 +58,18 @@ cargo run --release -- <input.kdl> <output.png>
 
 ```bash
 cargo test
+```
+
+The golden-image test renders every `examples/*.kdl` file and compares it with
+`tests/golden/<name>.png`. After an intended change to the output, regenerate
+the reference images and check them by eye before committing:
+
+```bash
+UPDATE_GOLDEN=1 cargo test --release --test golden
+```
+
+## Benchmarks
+
+```bash
+cargo bench
 ```
