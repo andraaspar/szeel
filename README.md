@@ -3,7 +3,7 @@
 Renders PNG images from a text file that describes them as gradient-coloured
 paths built with Hobby's algorithm.
 
-> **Status:** early development. Everything in [plan.md](plan.md) is
+> **Status:** early development. Paths, groups, masks and reuse are
 > implemented on the CPU. See `examples/` for sample inputs.
 
 ## Prerequisites
@@ -53,6 +53,39 @@ Or build and run in one step:
 ```bash
 cargo run --release -- <input.kdl> <output.png>
 ```
+
+## Input format
+
+A scene is a [KDL](https://kdl.dev) file. It starts with
+`image width=… height=…`, followed by what to draw, **front first**: each
+element is composited behind everything drawn before it.
+
+| Node       | Where                                  | Contents                                                     |
+| ---------- | -------------------------------------- | ------------------------------------------------------------ |
+| `image`    | first, top level only                  | `width`, `height` properties                                 |
+| `path`     | top level, `group`, `mask`, `defs`     | `point x y`, `gradient t { stop … }`, at most one `mask`; `closed`, `id` properties |
+| `group`    | top level, `group`, `mask`, `defs`     | `path`, `group`, `use`, at most one `mask`; `id` property    |
+| `use "id"` | top level, `group`, `mask`             | at most one `mask`                                           |
+| `mask`     | in `path`, `group`, `use` or `mask`    | `path`, `group`, `use`, at most one `mask`; `invert` property |
+| `defs`     | top level, any number of times         | `path`, `group`                                              |
+
+- **Groups** collect paths and other groups. On its own a group changes
+  nothing; it matters when it has a mask.
+- **Masks.** Only a mask's alpha counts (stop colours are still written in
+  full). The masked element is scaled by the mask's alpha, or by one minus it
+  with `invert=#true`. A masked group is drawn as a whole first, then scaled.
+  Combine masks by nesting: several shapes in one mask are a union, a `mask`
+  inside a `mask` is an intersection, and an inverted mask inside a mask
+  subtracts.
+- **Reuse.** Give a `path` or `group` an `id` (unique in the file) and draw it
+  again with `use "id"`, in the image or inside masks. A `use` can have a mask
+  of its own. Only elements that come earlier in the file can be used.
+  Elements inside `defs` are only drawn where they are used.
+- **Limits.** Counting every `use` and mask in full, a file may draw at most
+  1,000,000 paths, and groups, masks and `use`s may nest at most 64 levels
+  deep.
+
+See `examples/mask.kdl` and `examples/reuse.kdl`.
 
 ## Testing
 

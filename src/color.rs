@@ -13,11 +13,21 @@ pub struct Oklch {
 const ACHROMATIC: f32 = 1e-5;
 
 impl Oklch {
-    pub const TRANSPARENT: Oklch = Oklch { l: 0.0, c: 0.0, h: 0.0, a: 0.0 };
+    pub const TRANSPARENT: Oklch = Oklch {
+        l: 0.0,
+        c: 0.0,
+        h: 0.0,
+        a: 0.0,
+    };
 
     /// Builds a colour, normalising the hue into `[0, 360)`.
     pub fn new(l: f32, c: f32, h: f32, a: f32) -> Self {
-        Oklch { l, c, h: h.rem_euclid(360.0), a }
+        Oklch {
+            l,
+            c,
+            h: h.rem_euclid(360.0),
+            a,
+        }
     }
 
     /// Interpolates from `self` (at `f = 0`) to `other` (at `f = 1`) in OKLCH:
@@ -51,7 +61,12 @@ impl Oklch {
             h -= 360.0;
         }
         let inv = 1.0 / a;
-        Oklch { l: lp * inv, c: cp * inv, h, a }
+        Oklch {
+            l: lp * inv,
+            c: cp * inv,
+            h,
+            a,
+        }
     }
 
     /// Converts to premultiplied, gamma-encoded sRGB `[r, g, b, a]`, clipping
@@ -68,7 +83,12 @@ impl Oklch {
         let g = -1.268_438 * l + 2.609_757_4 * m - 0.341_319_38 * s;
         let b = -0.004_196_086_3 * l - 0.703_418_6 * m + 1.707_614_7 * s;
         let a = self.a;
-        [srgb_encode(r) * a, srgb_encode(g) * a, srgb_encode(b) * a, a]
+        [
+            srgb_encode(r) * a,
+            srgb_encode(g) * a,
+            srgb_encode(b) * a,
+            a,
+        ]
     }
 }
 
@@ -126,14 +146,21 @@ mod tests {
     fn known_red() {
         // sRGB red is oklch(0.62796 0.25768 29.2339).
         let r = Oklch::new(0.62796, 0.25768, 29.2339, 1.0).to_srgb_premul();
-        assert!(close(r[0], 1.0, 2e-3) && close(r[1], 0.0, 2e-3) && close(r[2], 0.0, 2e-3), "{r:?}");
+        assert!(
+            close(r[0], 1.0, 2e-3) && close(r[1], 0.0, 2e-3) && close(r[2], 0.0, 2e-3),
+            "{r:?}"
+        );
     }
 
     #[test]
     fn lut_matches_exact() {
         for i in 0..=1000 {
             let x = i as f32 / 1000.0;
-            assert!(close(srgb_encode(x), srgb_encode_exact(x as f64) as f32, 2e-4));
+            assert!(close(
+                srgb_encode(x),
+                srgb_encode_exact(x as f64) as f32,
+                2e-4
+            ));
         }
     }
 
@@ -160,7 +187,10 @@ mod tests {
         let red = Oklch::new(0.6, 0.2, 30.0, 1.0);
         let clear = Oklch::new(0.0, 0.0, 0.0, 0.0);
         let m = red.lerp(clear, 0.5);
-        assert!(close(m.l, 0.6, 1e-6) && close(m.c, 0.2, 1e-6) && close(m.a, 0.5, 1e-6), "{m:?}");
+        assert!(
+            close(m.l, 0.6, 1e-6) && close(m.c, 0.2, 1e-6) && close(m.a, 0.5, 1e-6),
+            "{m:?}"
+        );
         assert_eq!(red.lerp(clear, 1.0), Oklch::TRANSPARENT);
     }
 }

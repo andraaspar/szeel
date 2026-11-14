@@ -34,6 +34,22 @@ impl Gradient {
         a.color.lerp(b.color, f)
     }
 
+    /// Alpha at distance `d` from the path; the same as `self.eval(d).a`.
+    #[inline]
+    pub fn eval_alpha(&self, d: f32) -> f32 {
+        let s = &self.stops;
+        let i = s.partition_point(|st| st.dist <= d);
+        if i == 0 {
+            return s[0].color.a;
+        }
+        if i == s.len() {
+            return s[i - 1].color.a;
+        }
+        let (a, b) = (&s[i - 1], &s[i]);
+        let f = (d - a.dist) / (b.dist - a.dist);
+        lerp_alpha(a.color.a, b.color.a, f)
+    }
+
     /// Distance beyond which this gradient is fully transparent, if its last
     /// stop is transparent.
     pub fn extent(&self) -> Option<f32> {
@@ -57,7 +73,11 @@ pub struct Ring {
 impl Ring {
     pub fn new(start: f32, period: f32, mut gradients: Vec<Gradient>) -> Ring {
         gradients.sort_by(|a, b| a.t.total_cmp(&b.t));
-        Ring { start, period, gradients }
+        Ring {
+            start,
+            period,
+            gradients,
+        }
     }
 
     /// The two gradients next to `t`, and the blend factor between them.
@@ -66,8 +86,16 @@ impl Ring {
         let g = &self.gradients;
         let n = g.len();
         let j = g.partition_point(|x| x.t <= t);
-        let (prev, prev_t) = if j == 0 { (&g[n - 1], g[n - 1].t - self.period) } else { (&g[j - 1], g[j - 1].t) };
-        let (next, next_t) = if j == n { (&g[0], g[0].t + self.period) } else { (&g[j], g[j].t) };
+        let (prev, prev_t) = if j == 0 {
+            (&g[n - 1], g[n - 1].t - self.period)
+        } else {
+            (&g[j - 1], g[j - 1].t)
+        };
+        let (next, next_t) = if j == n {
+            (&g[0], g[0].t + self.period)
+        } else {
+            (&g[j], g[j].t)
+        };
         let span = next_t - prev_t;
         let f = if span > 0.0 { (t - prev_t) / span } else { 0.0 };
         (prev, next, f)
@@ -82,6 +110,32 @@ impl Ring {
         }
         a.eval(d).lerp(b.eval(d), f)
     }
+
+    /// Alpha at position `t` and distance `d`; the same as `self.eval(t, d).a`.
+    #[inline]
+    pub fn eval_alpha(&self, t: f32, d: f32) -> f32 {
+        let (a, b, f) = self.neighbours(t);
+        if std::ptr::eq(a, b) {
+            return a.eval_alpha(d);
+        }
+        lerp_alpha(a.eval_alpha(d), b.eval_alpha(d), f)
+    }
+
+    /// The implicit width of this ring alone (0 if it has no gradients).
+    pub fn extent(&self) -> Option<f32> {
+        let mut m = 0.0f32;
+        for g in &self.gradients {
+            m = m.max(g.extent()?);
+        }
+        Some(m)
+    }
+}
+
+/// Alpha interpolation exactly as in [`Oklch::lerp`].
+#[inline]
+fn lerp_alpha(a: f32, b: f32, f: f32) -> f32 {
+    let r = a + (b - a) * f;
+    if r <= 0.0 { 0.0 } else { r }
 }
 
 /// All the colour information of a path.
@@ -98,7 +152,10 @@ impl Paint {
     pub fn new(closed: bool, gradients: Vec<Gradient>) -> Paint {
         if closed {
             let (left, right): (Vec<_>, Vec<_>) = gradients.into_iter().partition(|g| g.t < 2.0);
-            Paint::Closed { left: Ring::new(1.0, 1.0, left), right: Ring::new(3.0, 1.0, right) }
+            Paint::Closed {
+                left: Ring::new(1.0, 1.0, left),
+                right: Ring::new(3.0, 1.0, right),
+            }
         } else {
             Paint::Open(Ring::new(0.0, 4.0, gradients))
         }
@@ -107,32 +164,55 @@ impl Paint {
     pub fn is_empty(&self) -> bool {
         match self {
             Paint::Open(r) => r.gradients.is_empty(),
-            Paint::Closed { left, right } => left.gradients.is_empty() && right.gradients.is_empty(),
+            Paint::Closed { left, right } => {
+                left.gradients.is_empty() && right.gradients.is_empty()
+            }
         }
-    }
-
-    fn gradients(&self) -> impl Iterator<Item = &Gradient> {
-        let (a, b) = match self {
-            Paint::Open(r) => (&r.gradients, None),
-            Paint::Closed { left, right } => (&left.gradients, Some(&right.gradients)),
-        };
-        a.iter().chain(b.into_iter().flatten())
     }
 
     /// The implicit width: if every gradient ends transparent, the greatest
     /// distance at which anything is painted.
     pub fn extent(&self) -> Option<f32> {
-        let mut m = 0.0f32;
-        for g in self.gradients() {
-            m = m.max(g.extent()?);
+        match self {
+            Paint::Open(r) => r.extent(),
+            Paint::Closed { left, right } => Some(left.extent()?.max(right.extent()?)),
         }
-        Some(m)
+    }
+
+    /// For a closed path, the implicit widths of the left and right sides.
+    pub fn side_extents(&self) -> Option<(Option<f32>, Option<f32>)> {
+        match self {
+            Paint::Open(_) => None,
+            Paint::Closed { left, right } => Some((left.extent(), right.extent())),
+        }
     }
 
     /// Colour at `t` and distance `d`, or `None` for an unpainted side.
     #[inline]
     pub fn eval(&self, t: f32, d: f32) -> Option<Oklch> {
-        let ring = match self {
+        let ring = self.ring(t);
+        if ring.gradients.is_empty() {
+            None
+        } else {
+            Some(ring.eval(t, d))
+        }
+    }
+
+    /// Alpha at `t` and distance `d`, or `None` for an unpainted side. Skips
+    /// the colour work of [`Paint::eval`].
+    #[inline]
+    pub fn eval_alpha(&self, t: f32, d: f32) -> Option<f32> {
+        let ring = self.ring(t);
+        if ring.gradients.is_empty() {
+            None
+        } else {
+            Some(ring.eval_alpha(t, d))
+        }
+    }
+
+    #[inline]
+    fn ring(&self, t: f32) -> &Ring {
+        match self {
             Paint::Open(r) => r,
             Paint::Closed { left, right } => {
                 if t < 2.0 {
@@ -141,8 +221,7 @@ impl Paint {
                     right
                 }
             }
-        };
-        if ring.gradients.is_empty() { None } else { Some(ring.eval(t, d)) }
+        }
     }
 }
 
@@ -151,7 +230,13 @@ mod tests {
     use super::*;
 
     fn solid(t: f32, l: f32) -> Gradient {
-        Gradient { t, stops: vec![Stop { dist: 0.0, color: Oklch::new(l, 0.0, 0.0, 1.0) }] }
+        Gradient {
+            t,
+            stops: vec![Stop {
+                dist: 0.0,
+                color: Oklch::new(l, 0.0, 0.0, 1.0),
+            }],
+        }
     }
 
     #[test]
@@ -178,7 +263,16 @@ mod tests {
 
     #[test]
     fn equal_t_is_a_hard_switch() {
-        let r = Ring::new(0.0, 4.0, vec![solid(1.0, 0.0), solid(2.0, 0.2), solid(2.0, 0.8), solid(3.0, 1.0)]);
+        let r = Ring::new(
+            0.0,
+            4.0,
+            vec![
+                solid(1.0, 0.0),
+                solid(2.0, 0.2),
+                solid(2.0, 0.8),
+                solid(3.0, 1.0),
+            ],
+        );
         assert!((r.eval(1.999, 0.0).l - 0.2).abs() < 1e-3);
         assert!((r.eval(2.0, 0.0).l - 0.8).abs() < 1e-6);
         assert!((r.eval(2.001, 0.0).l - 0.8).abs() < 1e-3);
@@ -190,10 +284,22 @@ mod tests {
         let g = Gradient {
             t: 0.0,
             stops: vec![
-                Stop { dist: 2.0, color: c(0.0) },
-                Stop { dist: 4.0, color: c(1.0) },
-                Stop { dist: 4.0, color: c(0.5) },
-                Stop { dist: 6.0, color: Oklch::new(0.5, 0.0, 0.0, 0.0) },
+                Stop {
+                    dist: 2.0,
+                    color: c(0.0),
+                },
+                Stop {
+                    dist: 4.0,
+                    color: c(1.0),
+                },
+                Stop {
+                    dist: 4.0,
+                    color: c(0.5),
+                },
+                Stop {
+                    dist: 6.0,
+                    color: Oklch::new(0.5, 0.0, 0.0, 0.0),
+                },
             ],
         };
         assert_eq!(g.eval(0.0).l, 0.0);
@@ -210,5 +316,38 @@ mod tests {
         assert_eq!(p.eval(1.7, 0.0).unwrap().l, 0.4);
         assert!(p.eval(3.5, 0.0).is_none());
         assert_eq!(p.extent(), None);
+        assert_eq!(p.side_extents(), Some((None, Some(0.0))));
+    }
+
+    #[test]
+    fn alpha_only_matches_full_eval() {
+        let c = |a| Oklch::new(0.6, 0.1, 30.0, a);
+        let g = |t, a0, a1| Gradient {
+            t,
+            stops: vec![
+                Stop {
+                    dist: 0.0,
+                    color: c(a0),
+                },
+                Stop {
+                    dist: 10.0,
+                    color: c(a1),
+                },
+            ],
+        };
+        let p = Paint::new(
+            false,
+            vec![g(0.5, 1.0, 0.0), g(2.0, 0.3, 0.8), g(3.0, 0.0, 0.0)],
+        );
+        for i in 0..40 {
+            for d in [0.0, 2.5, 7.0, 12.0] {
+                let t = i as f32 * 0.1;
+                assert_eq!(
+                    p.eval(t, d).unwrap().a,
+                    p.eval_alpha(t, d).unwrap(),
+                    "t {t} d {d}"
+                );
+            }
+        }
     }
 }

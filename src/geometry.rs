@@ -34,9 +34,14 @@ pub struct Aabb {
 }
 
 impl Aabb {
-    pub const EMPTY: Aabb = Aabb { x0: f32::INFINITY, y0: f32::INFINITY, x1: f32::NEG_INFINITY, y1: f32::NEG_INFINITY };
+    pub const EMPTY: Aabb = Aabb {
+        x0: f32::INFINITY,
+        y0: f32::INFINITY,
+        x1: f32::NEG_INFINITY,
+        y1: f32::NEG_INFINITY,
+    };
 
-    fn add(&mut self, x: f32, y: f32) {
+    pub fn add(&mut self, x: f32, y: f32) {
         self.x0 = self.x0.min(x);
         self.y0 = self.y0.min(y);
         self.x1 = self.x1.max(x);
@@ -44,7 +49,36 @@ impl Aabb {
     }
 
     pub fn grow(self, r: f32) -> Aabb {
-        Aabb { x0: self.x0 - r, y0: self.y0 - r, x1: self.x1 + r, y1: self.y1 + r }
+        Aabb {
+            x0: self.x0 - r,
+            y0: self.y0 - r,
+            x1: self.x1 + r,
+            y1: self.y1 + r,
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        !(self.x0 <= self.x1 && self.y0 <= self.y1)
+    }
+
+    pub fn union(self, o: Aabb) -> Aabb {
+        Aabb {
+            x0: self.x0.min(o.x0),
+            y0: self.y0.min(o.y0),
+            x1: self.x1.max(o.x1),
+            y1: self.y1.max(o.y1),
+        }
+    }
+
+    /// The overlap of two boxes, or [`Aabb::EMPTY`].
+    pub fn intersect(self, o: Aabb) -> Aabb {
+        let r = Aabb {
+            x0: self.x0.max(o.x0),
+            y0: self.y0.max(o.y0),
+            x1: self.x1.min(o.x1),
+            y1: self.y1.min(o.y1),
+        };
+        if r.is_empty() { Aabb::EMPTY } else { r }
     }
 
     pub fn overlaps(&self, o: &Aabb) -> bool {
@@ -167,11 +201,24 @@ impl Polyline {
                     b.add(sg.ax, sg.ay);
                     b.add(sg.ax + sg.dx, sg.ay + sg.dy);
                 }
-                Chunk { bbox: b, px: segs[first].ax, py: segs[first].ay, first: first as u32, end: end as u32 }
+                Chunk {
+                    bbox: b,
+                    px: segs[first].ax,
+                    py: segs[first].ay,
+                    first: first as u32,
+                    end: end as u32,
+                }
             })
             .collect();
 
-        Polyline { closed, segs, vertex_tangent, chunks, length: s as f32, bbox }
+        Polyline {
+            closed,
+            segs,
+            vertex_tangent,
+            chunks,
+            length: s as f32,
+            bbox,
+        }
     }
 
     /// Finds the closest point among `cands` (segment indices) to `(px, py)`
@@ -247,6 +294,63 @@ impl Polyline {
         Hit { t, dist }
     }
 
+    /// Twice the signed area enclosed by a closed polyline. With `y` pointing
+    /// down, a positive area means the path runs clockwise on screen.
+    pub fn signed_area2(&self) -> f64 {
+        self.segs
+            .iter()
+            .map(|s| s.ax as f64 * s.dy as f64 - s.dx as f64 * s.ay as f64)
+            .sum()
+    }
+
+    /// Whether a closed polyline is a simple loop: no two segments that are
+    /// not neighbours touch, and no two neighbours fold back onto each other.
+    /// Errs on the side of `false`.
+    pub fn is_simple(&self) -> bool {
+        let n = self.segs.len();
+        if !self.closed || n < 3 {
+            return false;
+        }
+        let ends = |s: &Seg| {
+            let (ax, ay) = (s.ax as f64, s.ay as f64);
+            ([ax, ay], [ax + s.dx as f64, ay + s.dy as f64])
+        };
+        // Neighbours share a vertex; they only fail by folding back.
+        for i in 0..n {
+            let (a, b) = (&self.segs[i], &self.segs[(i + 1) % n]);
+            let cross = a.dx as f64 * b.dy as f64 - a.dy as f64 * b.dx as f64;
+            let dot = a.dx as f64 * b.dx as f64 + a.dy as f64 * b.dy as f64;
+            if dot < 0.0 && cross.abs() <= 1e-9 * (a.len as f64 * b.len as f64) {
+                return false;
+            }
+        }
+        // Sweep along x, testing each segment against those whose x ranges overlap.
+        let range = |s: &Seg| {
+            let (p, q) = ends(s);
+            (p[0].min(q[0]), p[0].max(q[0]))
+        };
+        let mut order: Vec<usize> = (0..n).collect();
+        order.sort_by(|&i, &j| range(&self.segs[i]).0.total_cmp(&range(&self.segs[j]).0));
+        let mut active: Vec<usize> = Vec::new();
+        for &i in &order {
+            let x0 = range(&self.segs[i]).0;
+            active.retain(|&j| range(&self.segs[j]).1 >= x0);
+            let (p1, p2) = ends(&self.segs[i]);
+            for &j in &active {
+                let adjacent = i.abs_diff(j) == 1 || i.abs_diff(j) == n - 1;
+                if adjacent {
+                    continue;
+                }
+                let (q1, q2) = ends(&self.segs[j]);
+                if segments_touch(p1, p2, q1, q2) {
+                    return false;
+                }
+            }
+            active.push(i);
+        }
+        true
+    }
+
     /// All segment indices whose chunk could hold the closest point for some
     /// pixel centre in `r`. Returns the indices and a lower bound on the
     /// distance from any point of `r` to the path.
@@ -294,6 +398,28 @@ impl Polyline {
         }
         (min - half_diag).max(0.0)
     }
+}
+
+/// Whether two segments share at least one point.
+fn segments_touch(p1: [f64; 2], p2: [f64; 2], q1: [f64; 2], q2: [f64; 2]) -> bool {
+    let orient = |a: [f64; 2], b: [f64; 2], c: [f64; 2]| {
+        (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+    };
+    let within = |a: [f64; 2], b: [f64; 2], c: [f64; 2]| {
+        c[0] >= a[0].min(b[0])
+            && c[0] <= a[0].max(b[0])
+            && c[1] >= a[1].min(b[1])
+            && c[1] <= a[1].max(b[1])
+    };
+    let (d1, d2) = (orient(q1, q2, p1), orient(q1, q2, p2));
+    let (d3, d4) = (orient(p1, p2, q1), orient(p1, p2, q2));
+    if d1 * d2 < 0.0 && d3 * d4 < 0.0 {
+        return true;
+    }
+    (d1 == 0.0 && within(q1, q2, p1))
+        || (d2 == 0.0 && within(q1, q2, p2))
+        || (d3 == 0.0 && within(p1, p2, q1))
+        || (d4 == 0.0 && within(p1, p2, q2))
 }
 
 #[inline]
@@ -387,7 +513,16 @@ mod tests {
     #[test]
     fn closed_sides_wrap() {
         // Square, clockwise on screen (y down): (0,0) → (10,0) → (10,10) → (0,10).
-        let p = Polyline::from_vertices(&[[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0], [0.0, 0.0]], true);
+        let p = Polyline::from_vertices(
+            &[
+                [0.0, 0.0],
+                [10.0, 0.0],
+                [10.0, 10.0],
+                [0.0, 10.0],
+                [0.0, 0.0],
+            ],
+            true,
+        );
         let c = all(&p);
         // Inside is on the right when going clockwise on screen.
         let h = p.hit(5.0, 1.0, &c);
@@ -403,8 +538,47 @@ mod tests {
     }
 
     #[test]
+    fn orientation_and_simplicity() {
+        let sq = [
+            [0.0, 0.0],
+            [10.0, 0.0],
+            [10.0, 10.0],
+            [0.0, 10.0],
+            [0.0, 0.0],
+        ];
+        let p = Polyline::from_vertices(&sq, true);
+        assert!(p.signed_area2() > 0.0 && p.is_simple());
+        let rev: Vec<_> = sq.iter().rev().copied().collect();
+        let p = Polyline::from_vertices(&rev, true);
+        assert!(p.signed_area2() < 0.0 && p.is_simple());
+        // A figure 8 (bow tie) crosses itself.
+        let bow = [
+            [0.0, 0.0],
+            [10.0, 10.0],
+            [10.0, 0.0],
+            [0.0, 10.0],
+            [0.0, 0.0],
+        ];
+        assert!(!Polyline::from_vertices(&bow, true).is_simple());
+        // A curve whose control polygon is simple can still cross itself.
+        let cubics = crate::hobby::hobby(
+            &[[0.0, 0.0], [100.0, 100.0], [100.0, 0.0], [0.0, 100.0]],
+            true,
+        );
+        assert!(!Polyline::from_cubics(&cubics, true).is_simple());
+        let cubics = crate::hobby::hobby(
+            &[[0.0, 0.0], [100.0, 0.0], [100.0, 100.0], [0.0, 100.0]],
+            true,
+        );
+        assert!(Polyline::from_cubics(&cubics, true).is_simple());
+    }
+
+    #[test]
     fn culling_keeps_the_closest_segment() {
-        let cubics = crate::hobby::hobby(&[[10.0, 10.0], [200.0, 40.0], [120.0, 220.0], [30.0, 90.0]], true);
+        let cubics = crate::hobby::hobby(
+            &[[10.0, 10.0], [200.0, 40.0], [120.0, 220.0], [30.0, 90.0]],
+            true,
+        );
         let p = Polyline::from_cubics(&cubics, true);
         let everything = all(&p);
         let mut c0 = Vec::new();

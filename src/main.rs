@@ -7,7 +7,7 @@ use std::sync::Arc;
 use miette::{NamedSource, Report};
 
 use szeel::parse::{Diag, parse};
-use szeel::render::{Skip, render};
+use szeel::render::render;
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
@@ -36,6 +36,7 @@ fn main() -> ExitCode {
                     message: d.message.unwrap_or_else(|| "syntax error".into()),
                     span: d.span,
                     label: d.label,
+                    secondary: Vec::new(),
                     severity: d.severity,
                     help: d.help,
                     source: None,
@@ -51,12 +52,7 @@ fn main() -> ExitCode {
         return ExitCode::FAILURE;
     };
 
-    let canvas = render(&scene, |i, why| {
-        // Paths without gradients were already reported by the parser.
-        if why == Skip::Degenerate {
-            report(Diag::warning(scene.paths[i].span, "all points of this path are the same; it paints nothing"));
-        }
-    });
+    let canvas = render(&scene);
 
     let result = File::create(&output)
         .map_err(png::EncodingError::from)

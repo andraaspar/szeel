@@ -1,0 +1,38 @@
+image width=800 height=600
+
+defs {
+    // Not drawn by itself.
+    path id="spot" closed=#true {
+        point 300 200
+        point 500 200
+        point 400 400
+        gradient 1 { stop 0 0 0 0; stop 30 0 0 0 0; }
+        gradient 3 { stop 0 0 0 0; }
+    }
+}
+
+// Drawn here, and reused as a mask below.
+path id="ring" closed=#true {
+    point 200 300
+    point 400 100
+    point 600 300
+    point 400 500
+    gradient 1 { stop 0 0.7 0.15 150; stop 10 0.7 0.15 150 0; }
+}
+
+// The same mask on two different elements.
+group {
+    mask { use "spot"; }
+    path { point 0 300; point 800 300; gradient 1.5 { stop 0 0.6 0.2 20; stop 50 0.6 0.2 20 0; } }
+}
+path {
+    mask { use "spot"; use "ring"; }
+    point 0 0
+    point 1 0
+    gradient 0 { stop 0 0.3 0.05 260; }
+}
+
+// A copy of "ring" with an extra mask of its own.
+use "ring" {
+    mask invert=#true { use "spot"; }
+}
