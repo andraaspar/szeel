@@ -69,6 +69,22 @@ element is composited behind everything drawn before it.
 | `mask`     | in `path`, `group`, `use` or `mask`    | `path`, `group`, `use`, at most one `mask`; `invert` property |
 | `defs`     | top level, any number of times         | `path`, `group`                                              |
 
+- **Paths.** The points are joined by a smooth curve through all of them
+  (Hobby's algorithm). Coordinates are in pixels, with y pointing down. A
+  `closed=#true` path loops back to its first point. Each pixel is coloured
+  from its closest point on the path.
+- **Gradients.** `gradient t { … }` places a colour ramp at position `t` around
+  the path. A pixel blends the two gradients on either side of its own `t`,
+  wrapping around. On an open path, `t` runs from 0 to 4: 0–1 is the cap
+  around the start point, 1–2 is the left side from start to end, 2–3 is the
+  cap around the end point, and 3–4 is the right side from end back to start.
+  Left and right are as seen on screen when travelling along the path. On a
+  closed path only the sides exist: 1–2 (left) and 3–4 (right). If the points
+  go clockwise on screen, the inside is the right side.
+- **Stops.** `stop distance L C H [alpha]` gives an OKLCH colour at a distance
+  in pixels from the path. Distances must not decrease, and alpha defaults
+  to 1. The last stop's colour continues forever: end with alpha 0 for a glow
+  of limited width, or opaque to fill out to the image edges.
 - **Groups** collect paths and other groups. On its own a group changes
   nothing; it matters when it has a mask.
 - **Masks.** Only a mask's alpha counts (stop colours are still written in
@@ -86,6 +102,27 @@ element is composited behind everything drawn before it.
   deep.
 
 See `examples/mask.kdl` and `examples/reuse.kdl`.
+
+## Using szeel from Claude
+
+[`skill/`](skill/) holds a skill that lets Claude make images with szeel in
+regular claude.ai chats, including in the mobile app. The skill bundles a
+static Linux binary, so Claude runs it in its code-execution sandbox. Claude
+writes a scene, renders it, looks at the result, and refines the scene before
+handing over the PNG.
+
+To build the skill package:
+
+```bash
+skill/package.sh
+```
+
+This writes `target/szeel-skill.zip`. Upload it to claude.ai under
+Settings → Capabilities → Skills, with code execution turned on. Run the
+script and upload the zip again after any change to szeel or to
+[`skill/SKILL.md`](skill/SKILL.md).
+
+`SKILL.md` is also a more detailed guide to the input format, with recipes.
 
 ## Testing
 
