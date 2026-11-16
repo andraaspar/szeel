@@ -2,11 +2,14 @@
 //! its distance to the path.
 
 use crate::color::Oklch;
+use crate::easing::{Curve, Easing};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Stop {
     pub dist: f32,
     pub color: Oklch,
+    /// How the colour moves from this stop to the next one.
+    pub easing: Easing,
 }
 
 /// A colour ramp running outward from the path. Stops are sorted by distance.
@@ -14,47 +17,80 @@ pub struct Stop {
 pub struct Gradient {
     pub t: f32,
     pub stops: Vec<Stop>,
+    /// How the colour moves from this gradient to the next one along `t`.
+    /// The last gradient of a loop (a whole open path, or one side of a
+    /// closed path) eases back round to the first one of that loop.
+    pub easing: Easing,
 }
 
-impl Gradient {
-    /// Colour at distance `d` from the path.
+/// A [`Gradient`] laid out for per-pixel lookup: stop distances in their own
+/// array for a cache-friendly search, easings prepared as [`Curve`]s.
+#[derive(Clone, Debug)]
+struct Ramp {
+    t: f32,
+    dists: Box<[f32]>,
+    colors: Box<[Oklch]>,
+    /// `curves[i]` eases from stop `i` to stop `i + 1`.
+    curves: Box<[Curve]>,
+    /// Eases from this gradient to the next one along `t`.
+    easing: Curve,
+}
+
+impl Ramp {
+    fn new(g: &Gradient) -> Ramp {
+        let n = g.stops.len();
+        Ramp {
+            t: g.t,
+            dists: g.stops.iter().map(|s| s.dist).collect(),
+            colors: g.stops.iter().map(|s| s.color).collect(),
+            curves: g.stops[..n.saturating_sub(1)]
+                .iter()
+                .map(|s| Curve::new(s.easing))
+                .collect(),
+            easing: Curve::new(g.easing),
+        }
+    }
+
+    /// The stops around distance `d`: `Ok((i, f))` to blend stop `i` into
+    /// stop `i + 1` by `f`, or `Err(i)` to take stop `i` as it is.
     #[inline]
-    pub fn eval(&self, d: f32) -> Oklch {
-        let s = &self.stops;
+    fn locate(&self, d: f32) -> Result<(usize, f32), usize> {
+        let s = &self.dists;
         // Number of stops at or before `d`.
-        let i = s.partition_point(|st| st.dist <= d);
+        let i = s.partition_point(|&x| x <= d);
         if i == 0 {
-            return s[0].color;
+            return Err(0);
         }
         if i == s.len() {
-            return s[i - 1].color;
+            return Err(i - 1);
         }
-        let (a, b) = (&s[i - 1], &s[i]);
-        let f = (d - a.dist) / (b.dist - a.dist);
-        a.color.lerp(b.color, f)
+        let f = self.curves[i - 1].apply((d - s[i - 1]) / (s[i] - s[i - 1]));
+        Ok((i - 1, f))
+    }
+
+    /// Colour at distance `d` from the path.
+    #[inline]
+    fn eval(&self, d: f32) -> Oklch {
+        match self.locate(d) {
+            Ok((i, f)) => self.colors[i].lerp(self.colors[i + 1], f),
+            Err(i) => self.colors[i],
+        }
     }
 
     /// Alpha at distance `d` from the path; the same as `self.eval(d).a`.
     #[inline]
-    pub fn eval_alpha(&self, d: f32) -> f32 {
-        let s = &self.stops;
-        let i = s.partition_point(|st| st.dist <= d);
-        if i == 0 {
-            return s[0].color.a;
+    fn eval_alpha(&self, d: f32) -> f32 {
+        match self.locate(d) {
+            Ok((i, f)) => lerp_alpha(self.colors[i].a, self.colors[i + 1].a, f),
+            Err(i) => self.colors[i].a,
         }
-        if i == s.len() {
-            return s[i - 1].color.a;
-        }
-        let (a, b) = (&s[i - 1], &s[i]);
-        let f = (d - a.dist) / (b.dist - a.dist);
-        lerp_alpha(a.color.a, b.color.a, f)
     }
 
     /// Distance beyond which this gradient is fully transparent, if its last
     /// stop is transparent.
-    pub fn extent(&self) -> Option<f32> {
-        let last = self.stops.last()?;
-        (last.color.a <= 0.0).then_some(last.dist)
+    fn extent(&self) -> Option<f32> {
+        let last = self.colors.last()?;
+        (last.a <= 0.0).then(|| *self.dists.last().unwrap())
     }
 }
 
@@ -62,28 +98,28 @@ impl Gradient {
 /// or one side (`[1, 2)` or `[3, 4)`) of a closed path.
 #[derive(Clone, Debug, Default)]
 pub struct Ring {
-    /// Start of the loop in `t`.
-    pub start: f32,
     /// Length of the loop in `t`.
-    pub period: f32,
+    period: f32,
     /// Gradients sorted (stably) by `t`.
-    pub gradients: Vec<Gradient>,
+    ramps: Vec<Ramp>,
 }
 
 impl Ring {
-    pub fn new(start: f32, period: f32, mut gradients: Vec<Gradient>) -> Ring {
-        gradients.sort_by(|a, b| a.t.total_cmp(&b.t));
-        Ring {
-            start,
-            period,
-            gradients,
-        }
+    pub fn new(period: f32, gradients: &[Gradient]) -> Ring {
+        let mut ramps: Vec<Ramp> = gradients.iter().map(Ramp::new).collect();
+        ramps.sort_by(|a, b| a.t.total_cmp(&b.t));
+        Ring { period, ramps }
     }
 
-    /// The two gradients next to `t`, and the blend factor between them.
+    pub fn is_empty(&self) -> bool {
+        self.ramps.is_empty()
+    }
+
+    /// The two gradients next to `t`, and the blend factor between them,
+    /// eased by the first one's easing. Needs at least two gradients.
     #[inline]
-    pub fn neighbours(&self, t: f32) -> (&Gradient, &Gradient, f32) {
-        let g = &self.gradients;
+    fn neighbours(&self, t: f32) -> (&Ramp, &Ramp, f32) {
+        let g = &self.ramps;
         let n = g.len();
         let j = g.partition_point(|x| x.t <= t);
         let (prev, prev_t) = if j == 0 {
@@ -97,34 +133,38 @@ impl Ring {
             (&g[j], g[j].t)
         };
         let span = next_t - prev_t;
-        let f = if span > 0.0 { (t - prev_t) / span } else { 0.0 };
+        let f = if span > 0.0 {
+            prev.easing.apply((t - prev_t) / span)
+        } else {
+            0.0
+        };
         (prev, next, f)
     }
 
     /// Colour at position `t` (within this ring) and distance `d`.
     #[inline]
     pub fn eval(&self, t: f32, d: f32) -> Oklch {
-        let (a, b, f) = self.neighbours(t);
-        if std::ptr::eq(a, b) {
-            return a.eval(d);
+        if let [only] = &self.ramps[..] {
+            return only.eval(d);
         }
+        let (a, b, f) = self.neighbours(t);
         a.eval(d).lerp(b.eval(d), f)
     }
 
     /// Alpha at position `t` and distance `d`; the same as `self.eval(t, d).a`.
     #[inline]
     pub fn eval_alpha(&self, t: f32, d: f32) -> f32 {
-        let (a, b, f) = self.neighbours(t);
-        if std::ptr::eq(a, b) {
-            return a.eval_alpha(d);
+        if let [only] = &self.ramps[..] {
+            return only.eval_alpha(d);
         }
+        let (a, b, f) = self.neighbours(t);
         lerp_alpha(a.eval_alpha(d), b.eval_alpha(d), f)
     }
 
     /// The implicit width of this ring alone (0 if it has no gradients).
     pub fn extent(&self) -> Option<f32> {
         let mut m = 0.0f32;
-        for g in &self.gradients {
+        for g in &self.ramps {
             m = m.max(g.extent()?);
         }
         Some(m)
@@ -149,24 +189,23 @@ pub enum Paint {
 }
 
 impl Paint {
-    pub fn new(closed: bool, gradients: Vec<Gradient>) -> Paint {
+    pub fn new(closed: bool, gradients: &[Gradient]) -> Paint {
         if closed {
-            let (left, right): (Vec<_>, Vec<_>) = gradients.into_iter().partition(|g| g.t < 2.0);
+            let (left, right): (Vec<_>, Vec<_>) =
+                gradients.iter().cloned().partition(|g| g.t < 2.0);
             Paint::Closed {
-                left: Ring::new(1.0, 1.0, left),
-                right: Ring::new(3.0, 1.0, right),
+                left: Ring::new(1.0, &left),
+                right: Ring::new(1.0, &right),
             }
         } else {
-            Paint::Open(Ring::new(0.0, 4.0, gradients))
+            Paint::Open(Ring::new(4.0, gradients))
         }
     }
 
     pub fn is_empty(&self) -> bool {
         match self {
-            Paint::Open(r) => r.gradients.is_empty(),
-            Paint::Closed { left, right } => {
-                left.gradients.is_empty() && right.gradients.is_empty()
-            }
+            Paint::Open(r) => r.is_empty(),
+            Paint::Closed { left, right } => left.is_empty() && right.is_empty(),
         }
     }
 
@@ -191,7 +230,7 @@ impl Paint {
     #[inline]
     pub fn eval(&self, t: f32, d: f32) -> Option<Oklch> {
         let ring = self.ring(t);
-        if ring.gradients.is_empty() {
+        if ring.is_empty() {
             None
         } else {
             Some(ring.eval(t, d))
@@ -203,7 +242,7 @@ impl Paint {
     #[inline]
     pub fn eval_alpha(&self, t: f32, d: f32) -> Option<f32> {
         let ring = self.ring(t);
-        if ring.gradients.is_empty() {
+        if ring.is_empty() {
             None
         } else {
             Some(ring.eval_alpha(t, d))
@@ -235,13 +274,15 @@ mod tests {
             stops: vec![Stop {
                 dist: 0.0,
                 color: Oklch::new(l, 0.0, 0.0, 1.0),
+                easing: Easing::Linear,
             }],
+            easing: Easing::Linear,
         }
     }
 
     #[test]
     fn single_gradient_is_its_own_neighbour() {
-        let r = Ring::new(0.0, 4.0, vec![solid(1.5, 0.3)]);
+        let r = Ring::new(4.0, &[solid(1.5, 0.3)]);
         for t in [0.0, 1.0, 1.5, 2.0, 3.99] {
             assert_eq!(r.eval(t, 5.0).l, 0.3);
         }
@@ -249,13 +290,13 @@ mod tests {
 
     #[test]
     fn wraps_around() {
-        let r = Ring::new(0.0, 4.0, vec![solid(3.0, 0.0), solid(1.0, 1.0)]);
+        let r = Ring::new(4.0, &[solid(3.0, 0.0), solid(1.0, 1.0)]);
         // Between 3 and 1 (via 4 ≡ 0): t = 0 is half way.
         assert!((r.eval(0.0, 0.0).l - 0.5).abs() < 1e-6);
         assert!((r.eval(3.5, 0.0).l - 0.25).abs() < 1e-6);
         assert!((r.eval(2.0, 0.0).l - 0.5).abs() < 1e-6);
         // Closed side, period 1.
-        let r = Ring::new(3.0, 1.0, vec![solid(3.2, 0.0), solid(3.6, 1.0)]);
+        let r = Ring::new(1.0, &[solid(3.2, 0.0), solid(3.6, 1.0)]);
         // From 3.6 (L 1) to 3.2 + 1 (L 0): a span of 0.6.
         assert!((r.eval(3.0, 0.0).l - 1.0 / 3.0).abs() < 1e-6);
         assert!((r.eval(3.9, 0.0).l - 0.5).abs() < 1e-6);
@@ -264,9 +305,8 @@ mod tests {
     #[test]
     fn equal_t_is_a_hard_switch() {
         let r = Ring::new(
-            0.0,
             4.0,
-            vec![
+            &[
                 solid(1.0, 0.0),
                 solid(2.0, 0.2),
                 solid(2.0, 0.8),
@@ -287,21 +327,27 @@ mod tests {
                 Stop {
                     dist: 2.0,
                     color: c(0.0),
+                    easing: Easing::Linear,
                 },
                 Stop {
                     dist: 4.0,
                     color: c(1.0),
+                    easing: Easing::Linear,
                 },
                 Stop {
                     dist: 4.0,
                     color: c(0.5),
+                    easing: Easing::Linear,
                 },
                 Stop {
                     dist: 6.0,
                     color: Oklch::new(0.5, 0.0, 0.0, 0.0),
+                    easing: Easing::Linear,
                 },
             ],
+            easing: Easing::Linear,
         };
+        let g = Ramp::new(&g);
         assert_eq!(g.eval(0.0).l, 0.0);
         assert!((g.eval(3.0).l - 0.5).abs() < 1e-6);
         assert_eq!(g.eval(4.0).l, 0.5);
@@ -311,8 +357,54 @@ mod tests {
     }
 
     #[test]
+    fn easing_between_gradients() {
+        let eased = |t, l, easing| Gradient {
+            easing,
+            ..solid(t, l)
+        };
+        // ease-in from 1 (L 0) to 3 (L 1), linear on the way back via 4 ≡ 0.
+        let r = Ring::new(4.0, &[eased(1.0, 0.0, Easing::EASE_IN), solid(3.0, 1.0)]);
+        let close = |a: f32, b: f32| (a - b).abs() < 1e-3;
+        assert!(close(r.eval(2.0, 0.0).l, 0.3153), "{}", r.eval(2.0, 0.0).l);
+        assert!(close(r.eval_alpha(2.0, 0.0), 1.0));
+        assert!(close(r.eval(0.0, 0.0).l, 0.5));
+        // The last gradient's easing applies across the wrap.
+        let steps = Easing::Steps {
+            n: 2,
+            pos: crate::easing::StepPosition::End,
+        };
+        let r = Ring::new(4.0, &[solid(1.0, 0.0), eased(3.0, 1.0, steps)]);
+        assert_eq!(r.eval(3.5, 0.0).l, 1.0);
+        assert_eq!(r.eval(0.5, 0.0).l, 0.5);
+    }
+
+    #[test]
+    fn closed_sides_ease_on_their_own() {
+        let steps = Easing::Steps {
+            n: 2,
+            pos: crate::easing::StepPosition::End,
+        };
+        let eased = |t, l| Gradient {
+            easing: steps,
+            ..solid(t, l)
+        };
+        // Left side: two gradients, so easing applies, wrapping within [1, 2).
+        // Right side: one gradient, whose easing has nothing to blend into.
+        let p = Paint::new(true, &[eased(1.2, 0.0), eased(1.6, 1.0), eased(3.5, 0.4)]);
+        let l = |t| p.eval(t, 0.0).unwrap().l;
+        assert_eq!(l(1.3), 0.0);
+        assert_eq!(l(1.5), 0.5);
+        // From 1.6 round to 1.2 + 1: half way is 1.9.
+        assert_eq!(l(1.75), 1.0);
+        assert_eq!(l(1.95), 0.5);
+        for t in [3.0, 3.5, 3.9] {
+            assert_eq!(l(t), 0.4);
+        }
+    }
+
+    #[test]
     fn closed_paint_sides() {
-        let p = Paint::new(true, vec![solid(1.2, 0.4)]);
+        let p = Paint::new(true, &[solid(1.2, 0.4)]);
         assert_eq!(p.eval(1.7, 0.0).unwrap().l, 0.4);
         assert!(p.eval(3.5, 0.0).is_none());
         assert_eq!(p.extent(), None);
@@ -328,16 +420,19 @@ mod tests {
                 Stop {
                     dist: 0.0,
                     color: c(a0),
+                    easing: Easing::Linear,
                 },
                 Stop {
                     dist: 10.0,
                     color: c(a1),
+                    easing: Easing::Linear,
                 },
             ],
+            easing: Easing::Linear,
         };
         let p = Paint::new(
             false,
-            vec![g(0.5, 1.0, 0.0), g(2.0, 0.3, 0.8), g(3.0, 0.0, 0.0)],
+            &[g(0.5, 1.0, 0.0), g(2.0, 0.3, 0.8), g(3.0, 0.0, 0.0)],
         );
         for i in 0..40 {
             for d in [0.0, 2.5, 7.0, 12.0] {
@@ -349,5 +444,55 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn easing_shapes_the_blend() {
+        // From (l0, a0) at 0 to (l1, a1) at 10, eased by `easing`.
+        let g = |easing, (l0, a0), (l1, a1)| {
+            Ramp::new(&Gradient {
+                t: 0.0,
+                stops: vec![
+                    Stop {
+                        dist: 0.0,
+                        color: Oklch::new(l0, 0.0, 0.0, a0),
+                        easing,
+                    },
+                    Stop {
+                        dist: 10.0,
+                        color: Oklch::new(l1, 0.0, 0.0, a1),
+                        easing: Easing::Linear,
+                    },
+                ],
+                easing: Easing::Linear,
+            })
+        };
+        let close = |a: f32, b: f32| (a - b).abs() < 1e-3;
+        // Opaque stops for lightness (lerp is premultiplied), constant
+        // lightness for alpha.
+        let light = |e| g(e, (0.0, 1.0), (1.0, 1.0));
+        let fade = |e| g(e, (0.5, 1.0), (0.5, 0.0));
+
+        assert!(close(light(Easing::Linear).eval(5.0).l, 0.5));
+        assert!(close(fade(Easing::Linear).eval_alpha(5.0), 0.5));
+
+        // ease-in at 0.5 ≈ 0.3153.
+        let l = light(Easing::EASE_IN);
+        assert!(close(l.eval(5.0).l, 0.3153), "{}", l.eval(5.0).l);
+        let f = fade(Easing::EASE_IN);
+        assert!(close(f.eval_alpha(5.0), 1.0 - 0.3153));
+        assert_eq!(f.eval(5.0).a, f.eval_alpha(5.0));
+
+        // steps(4): flat bands, then the next stop's colour exactly at its distance.
+        let steps = Easing::Steps {
+            n: 4,
+            pos: crate::easing::StepPosition::End,
+        };
+        let s = light(steps);
+        assert_eq!(s.eval(1.0).l, 0.0);
+        assert_eq!(s.eval(3.0).l, 0.25);
+        assert_eq!(s.eval(9.9).l, 0.75);
+        assert_eq!(s.eval(10.0).l, 1.0);
+        assert_eq!(fade(steps).eval_alpha(3.0), 0.75);
     }
 }

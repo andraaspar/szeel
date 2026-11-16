@@ -36,7 +36,7 @@ pub struct PreparedPath {
 
 impl PreparedPath {
     fn new(def: &PathDef, cubics: &[Cubic]) -> PreparedPath {
-        let paint = Paint::new(def.closed, def.gradients.clone());
+        let paint = Paint::new(def.closed, &def.gradients);
         let poly = Polyline::from_cubics(cubics, def.closed);
         let extent = paint.extent();
         PreparedPath {
@@ -241,7 +241,7 @@ struct PPath {
 impl PPath {
     /// Prepares what is needed for the reach of the path's paint.
     fn new(def: &PathDef) -> PPath {
-        let paint = Paint::new(def.closed, def.gradients.clone());
+        let paint = Paint::new(def.closed, &def.gradients);
         let none = PPath {
             cubics: None,
             geom: OnceLock::new(),

@@ -6,6 +6,12 @@ use szeel::render::render;
 
 /// `n` stacked open paths with `points` points each, each with an implicit width.
 fn many_paths(width: u32, height: u32, n: usize, points: usize) -> String {
+    many_paths_eased(width, height, n, points, "linear")
+}
+
+/// [`many_paths`] with `easing` on every gradient and every stop.
+fn many_paths_eased(width: u32, height: u32, n: usize, points: usize, easing: &str) -> String {
+    let e = format!("easing=\"{easing}\"");
     let mut s = format!("image width={width} height={height}\n");
     for i in 0..n {
         s += "path {\n";
@@ -16,10 +22,10 @@ fn many_paths(width: u32, height: u32, n: usize, points: usize) -> String {
         }
         let hue = (i * 37) % 360;
         s += &format!(
-            "gradient 1.5 {{ stop 0 0.7 0.15 {hue}; stop 30 0.7 0.15 {hue} 0.5; stop 60 0.6 0.1 {hue} 0; }}\n"
+            "gradient 1.5 {e} {{ stop 0 0.7 0.15 {hue} {e}; stop 30 0.7 0.15 {hue} 0.5 {e}; stop 60 0.6 0.1 {hue} 0; }}\n"
         );
         s += &format!(
-            "gradient 3.5 {{ stop 0 0.5 0.1 {}; stop 40 0.5 0.1 {} 0; }}\n}}\n",
+            "gradient 3.5 {e} {{ stop 0 0.5 0.1 {} {e}; stop 40 0.5 0.1 {} 0; }}\n}}\n",
             hue + 120,
             hue + 120
         );
@@ -113,6 +119,20 @@ fn benches(c: &mut Criterion) {
         ("4096x4096, 50 paths x 40 points", 4096, 4096, 50, 40),
     ] {
         let scene = parse(&many_paths(w, h, n, pts)).unwrap().scene.unwrap();
+        g.bench_function(name, |b| b.iter(|| render(black_box(&scene))));
+    }
+    for (name, easing) in [
+        ("1920x1080, 20 paths x 12 points, ease", "ease"),
+        ("1920x1080, 20 paths x 12 points, steps(4)", "steps(4)"),
+        (
+            "1920x1080, 20 paths x 12 points, linear-shaped bezier",
+            "cubic-bezier(0.25, 0.25, 0.75, 0.75)",
+        ),
+    ] {
+        let scene = parse(&many_paths_eased(1920, 1080, 20, 12, easing))
+            .unwrap()
+            .scene
+            .unwrap();
         g.bench_function(name, |b| b.iter(|| render(black_box(&scene))));
     }
     for (name, src) in [

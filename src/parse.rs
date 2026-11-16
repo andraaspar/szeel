@@ -8,6 +8,7 @@ use kdl::{KdlDocument, KdlEntry, KdlNode, KdlValue};
 use miette::{Diagnostic, LabeledSpan, NamedSource, Severity, SourceSpan};
 
 use crate::color::Oklch;
+use crate::easing::{EASING_NAMES, Easing};
 use crate::gradient::{Gradient, Stop};
 
 /// Largest width or height accepted (the PNG limit).
@@ -876,10 +877,12 @@ impl Parser {
     }
 
     fn gradient(&mut self, node: &KdlNode, closed: bool) -> R<Option<Gradient>> {
-        let args = self.check_entries(node, 1, 1, &[])?;
+        let args = self.check_entries(node, 1, 1, &["easing"])?;
         let t = self.number(args[0], "t")?;
+        // Keep going after a bad easing so the stops are checked too.
+        let easing = self.easing(node);
         let mut stops = Vec::new();
-        let mut ok = true;
+        let mut ok = easing.is_ok();
         if let Some(children) = node.children() {
             for child in children.nodes() {
                 if child.name().value() != "stop" {
@@ -936,48 +939,75 @@ impl Parser {
         Ok(Some(Gradient {
             t: t as f32,
             stops: stops.into_iter().map(|(s, _)| s).collect(),
+            easing: easing?,
         }))
+    }
+
+    /// The optional `easing="…"` property of a `gradient` or `stop`.
+    fn easing(&mut self, node: &KdlNode) -> R<Easing> {
+        let Some(e) = node.entry("easing") else {
+            return Ok(Easing::Linear);
+        };
+        match e.value() {
+            KdlValue::String(s) => Easing::parse(s).map_err(|msg| {
+                self.err(
+                    Diag::error(e.span(), format!("bad `easing`: {msg}"))
+                        .label("here")
+                        .help(format!("expected one of: {EASING_NAMES}")),
+                )
+            }),
+            _ => Err(self.err(
+                Diag::error(e.span(), "`easing` must be a string")
+                    .label("not a string")
+                    .help(format!("expected one of: {EASING_NAMES}")),
+            )),
+        }
     }
 
     fn stop(&mut self, node: &KdlNode) -> R<Stop> {
         self.no_children(node)?;
-        let args = self.check_entries(node, 4, 5, &[])?;
-        let d = self.number(args[0], "distance")?;
-        let l = self.number(args[1], "L")?;
-        let c = self.number(args[2], "C")?;
-        let h = self.number(args[3], "H")?;
-        let a = match args.get(4) {
-            Some(e) => self.number(e, "alpha")?,
-            None => 1.0,
-        };
-        let range = |me: &mut Self, v: f64, ok: bool, e: &KdlEntry, msg: &str| -> R<()> {
-            if ok {
-                Ok(())
+        let args = self.check_entries(node, 4, 5, &["easing"])?;
+        // Check every value before failing, so that all errors show at once.
+        let check = |me: &mut Self, e: &KdlEntry, what: &str, ok: fn(f64) -> bool, msg: &str| {
+            let v = me.number(e, what)?;
+            if ok(v) {
+                Ok(v)
             } else {
                 Err(me.err(Diag::error(e.span(), msg.to_string()).label(format!("is {v}"))))
             }
         };
-        range(self, d, d >= 0.0, args[0], "`distance` must be 0 or more")?;
-        range(
+        let d = check(
             self,
-            l,
-            (0.0..=1.0).contains(&l),
+            args[0],
+            "distance",
+            |v| v >= 0.0,
+            "`distance` must be 0 or more",
+        );
+        let l = check(
+            self,
             args[1],
+            "L",
+            |v| (0.0..=1.0).contains(&v),
             "`L` must be from 0 to 1",
-        )?;
-        range(self, c, c >= 0.0, args[2], "`C` must be 0 or more")?;
-        if let Some(e) = args.get(4) {
-            range(
+        );
+        let c = check(self, args[2], "C", |v| v >= 0.0, "`C` must be 0 or more");
+        let h = self.number(args[3], "H");
+        let a = match args.get(4) {
+            Some(e) => check(
                 self,
-                a,
-                (0.0..=1.0).contains(&a),
                 e,
+                "alpha",
+                |v| (0.0..=1.0).contains(&v),
                 "`alpha` must be from 0 to 1",
-            )?;
-        }
+            ),
+            None => Ok(1.0),
+        };
+        let easing = self.easing(node);
+        let (d, l, c, h, a, easing) = (d?, l?, c?, h?, a?, easing?);
         Ok(Stop {
             dist: d as f32,
             color: Oklch::new(l as f32, c as f32, h as f32, a as f32),
+            easing,
         })
     }
 
@@ -1199,6 +1229,33 @@ path closed=#true {
     }
 
     #[test]
+    fn stop_easing() {
+        let s = ok(&format!(
+            "{IMG}path {{ point 0 0; point 1 1; gradient 0 {{ stop 0 0 0 0 easing=\"ease-in\"; stop 5 1 0 0 easing=\"steps(3, jump-none)\"; stop 9 1 0 0; }} }}"
+        ));
+        let st = &s.paths[0].gradients[0].stops;
+        assert_eq!(st[0].easing, Easing::EASE_IN);
+        assert_eq!(
+            st[1].easing,
+            Easing::Steps {
+                n: 3,
+                pos: crate::easing::StepPosition::None
+            }
+        );
+        assert_eq!(st[2].easing, Easing::Linear);
+    }
+
+    #[test]
+    fn gradient_easing() {
+        let s = ok(&format!(
+            "{IMG}path {{ point 0 0; point 1 1; gradient 0 easing=\"ease-out\" {{ stop 0 0 0 0; }}; gradient 2 {{ stop 0 0 0 0; }} }}"
+        ));
+        let g = &s.paths[0].gradients;
+        assert_eq!(g[0].easing, Easing::EASE_OUT);
+        assert_eq!(g[1].easing, Easing::Linear);
+    }
+
+    #[test]
     fn errors_are_reported() {
         assert_eq!(
             errors("path { }"),
@@ -1232,7 +1289,49 @@ path closed=#true {
             errors(
                 "image width=5 height=5\npath { point 0 0; point 1 1; gradient 1 { stop 0 1.5 0 0 2 } }"
             ),
-            ["`L` must be from 0 to 1"]
+            ["`L` must be from 0 to 1", "`alpha` must be from 0 to 1"]
+        );
+        assert_eq!(
+            errors(
+                "image width=5 height=5\npath { point 0 0; point 1 1; gradient 1 { stop 0 0 0 0 easing=\"bounce\" } }"
+            ),
+            ["bad `easing`: unknown easing function `bounce`"]
+        );
+        assert_eq!(
+            errors(
+                "image width=5 height=5\npath { point 0 0; point 1 1; gradient 1 { stop 0 0 0 0 easing=1 } }"
+            ),
+            ["`easing` must be a string"]
+        );
+        assert_eq!(
+            errors(
+                "image width=5 height=5\npath { point 0 0; point 1 1; gradient 1 easing=\"bounce\" { stop 0 0 0 0 } }"
+            ),
+            ["bad `easing`: unknown easing function `bounce`"]
+        );
+        // A bad easing does not hide other errors in the same gradient or stop.
+        assert_eq!(
+            errors(
+                "image width=5 height=5\npath { point 0 0; point 1 1; gradient 1 easing=\"bouncy\" { stop 0 2 0 0; stop -1 0 0 0 } }"
+            ),
+            [
+                "bad `easing`: unknown easing function `bouncy`",
+                "`L` must be from 0 to 1",
+                "`distance` must be 0 or more",
+            ]
+        );
+        assert_eq!(
+            errors(
+                "image width=5 height=5\npath { point 0 0; point 1 1; gradient 1 { stop -1 1.5 -1 \"x\" 2 easing=\"bounce\" } }"
+            ),
+            [
+                "`distance` must be 0 or more",
+                "`L` must be from 0 to 1",
+                "`C` must be 0 or more",
+                "`H` must be a number",
+                "`alpha` must be from 0 to 1",
+                "bad `easing`: unknown easing function `bounce`",
+            ]
         );
         assert_eq!(
             errors("image width=5 height=5\npath { point 0; point 1 1 }"),

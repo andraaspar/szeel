@@ -83,11 +83,20 @@ path closed=#false id="name" {     // both properties optional
 - Two almost identical points (`point 400 300; point 400.01 300`) act as a
   **dot**: its gradients become a radial glow.
 
-### Gradients: `gradient t { stop … }`
+### Gradients: `gradient t [easing="…"] { stop … }`
 
 `t` says **where around the path** the gradient sits. Each pixel blends the
 two gradients on either side of its own `t`, wrapping around, so a single
 gradient applies all the way round.
+
+`easing` (same values as on a stop, see below) shapes the blend from **this
+gradient to the next one** along `t`; the last gradient's easing leads back
+round to the first. On a closed path each side wraps round **on its own**:
+gradients never blend across sides, so a side with a single gradient
+ignores its easing. Put at least two gradients on a side to ease along it.
+`ease-in-out` keeps each gradient's colour longer around
+its own `t` with a quicker change between; `steps(n)` gives banded
+transitions along the path.
 
 Open path, `t` in `[0, 4)`, going once around the curve:
 
@@ -121,7 +130,7 @@ on the points facing the light, darker ones opposite. Write `t` with 4
 decimals and keep it below `4` (for example `3.9987`). Rounding to `4` is out
 of range and triggers a warning.
 
-### Stops: `stop distance L C H [alpha]`
+### Stops: `stop distance L C H [alpha] [easing="…"]`
 
 - `distance`: pixels away from the curve, 0 or more. Distances must not
   decrease within a gradient.
@@ -130,6 +139,13 @@ of range and triggers a warning.
   roughly 30 red, 70 orange, 100 yellow, 145 green, 200 cyan, 250 blue,
   300 purple, 350 pink.
 - `alpha`: from 0 to 1, default 1.
+- `easing`: how the colour moves from **this stop to the next**, as a CSS
+  easing function: `linear` (default), `ease`, `ease-in`, `ease-out`,
+  `ease-in-out`, `cubic-bezier(x1, y1, x2, y2)`, `steps(n[, jump-start|jump-end|jump-none|jump-both])`,
+  `step-start`, `step-end`. Overshooting curves are clamped. Useful for soft
+  glows that fall off naturally (`ease-out` on a glow's first stop fades
+  quickly near the edge of the core), and `steps(n)` for posterised bands
+  without writing every stop: `stop 0 0.3 0.1 250 easing="steps(5)"; stop 100 0.9 0.15 80`.
 - **Hue is interpolated numerically**, not the short way round the colour
   wheel. Blending H 355 → 8 passes through cyan (a green band appears in the
   middle). Write the neighbour as `-5` or `368` instead, and for warm ↔ cool

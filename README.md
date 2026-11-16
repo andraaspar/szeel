@@ -81,10 +81,23 @@ element is composited behind everything drawn before it.
   Left and right are as seen on screen when travelling along the path. On a
   closed path only the sides exist: 1–2 (left) and 3–4 (right). If the points
   go clockwise on screen, the inside is the right side.
-- **Stops.** `stop distance L C H [alpha]` gives an OKLCH colour at a distance
+- **Stops.** `stop distance L C H [alpha] [easing="…"]` gives an OKLCH colour at a distance
   in pixels from the path. Distances must not decrease, and alpha defaults
   to 1. The last stop's colour continues forever: end with alpha 0 for a glow
   of limited width, or opaque to fill out to the image edges.
+- **Easing.** `easing="…"` on a stop sets how the colour moves from that stop
+  to the next one; on a gradient (`gradient t easing="…" { … }`) it sets how
+  the colour moves from that gradient to the next one along `t`. Either takes
+  a CSS easing function: `linear` (the default), `ease`, `ease-in`,
+  `ease-out`, `ease-in-out`, `cubic-bezier(x1, y1, x2, y2)`,
+  `steps(n[, jump-start|jump-end|jump-none|jump-both|start|end])`,
+  `step-start` or `step-end`. Gradients blend in a loop that wraps round, so
+  the last gradient's easing leads back to the first. On an open path the
+  loop is the whole of `t`; on a closed path each side is a loop of its own,
+  and gradients never blend across sides. Easing on the last stop, or on a
+  gradient that is alone in its loop (the only one on a path or on a side),
+  does nothing. A `cubic-bezier` that overshoots is clamped, so the blend
+  never goes past either end's colour.
 - **Groups** collect paths and other groups. On its own a group changes
   nothing; it matters when it has a mask.
 - **Masks.** Only a mask's alpha counts (stop colours are still written in
