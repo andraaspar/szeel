@@ -1,0 +1,20 @@
+[package]
+name = "szeel-editor"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[build-dependencies]
+tauri-build = { version = "=2.7.4", features = [] }
+
+[dependencies]
+szeel = { path = "../.." }
+kdl = "6.7.1"
+miette = "7.6.0"
+notify = "=8.2.1"
+serde = { version = "1", features = ["derive"] }
+tauri = { version = "=2.12.5", features = [] }
+tauri-plugin-dialog = "=2.8.3"
+
+[dev-dependencies]
+serde_json = "1"

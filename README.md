@@ -118,19 +118,30 @@ See `examples/mask.kdl` and `examples/reuse.kdl`.
 
 ## Editor
 
-`web/` holds a browser editor for scenes: the KDL text on the left, a live
-render on the right, with the paths drawn over it. Drag points to move them,
-double-click a curve to add a point, Alt+click a point to delete it; every
-change is written back into the text. The `?` button lists the rest.
+`web/` holds a desktop editor for scenes, built with Tauri 2: the KDL text on
+the left, a live render on the right, with the paths drawn over it. Drag
+points to move them, double-click a curve to add a point, Alt+click a point
+to delete it; every change is written back into the text. The `?` button
+lists the rest.
 
-It runs the real renderer, compiled to WebAssembly (`web/wasm/`), in a Web
-Worker. Besides the prerequisites above it needs Node.js 20 or later, the
-WebAssembly target, and a `wasm-bindgen` CLI of the same version as the
-`wasm-bindgen` crate in `Cargo.lock`:
+The UI (`web/src`, Svelte) does the editing; the Rust side
+(`web/src-tauri`) parses and renders with the `szeel` crate, natively and in
+parallel, and handles files: open, save, save as, recent files, opening a
+file named on the command line or dropped on the window, PNG export straight
+to disk, and reloading the open file when another program changes it. It asks
+before dropping unsaved changes.
+
+Besides the prerequisites above it needs Node.js 20 or later and the WebKitGTK
+development libraries. On Fedora:
 
 ```bash
-rustup target add wasm32-unknown-unknown
-cargo install wasm-bindgen-cli --version 0.2.130 --locked
+sudo dnf install webkit2gtk4.1-devel libsoup3-devel javascriptcoregtk4.1-devel openssl-devel librsvg2-devel
+```
+
+On Debian or Ubuntu:
+
+```bash
+sudo apt install libwebkit2gtk-4.1-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev libssl-dev librsvg2-dev
 ```
 
 Then:
@@ -138,9 +149,13 @@ Then:
 ```bash
 cd web
 npm install
-npm run dev     # builds the WebAssembly module, then serves on http://localhost:5173
-npm run build   # static site in web/dist
+npm run dev                       # opens the editor, reloading as you change the code
+npm run dev -- -- -- scene.kdl    # the same, opening scene.kdl
+npm run build                     # .rpm and .deb in target/release/bundle/
 ```
+
+The built binary is `target/release/szeel-editor`; give it a `.kdl` file to
+open that.
 
 ## Using szeel from Claude
 

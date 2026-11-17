@@ -22,4 +22,12 @@ name = "render"
 harness = false
 
 [workspace]
-members = [".", "web/wasm"]
+members = [".", "web/src-tauri"]
+
+# The editor's dev build (`npm run dev` in web/) renders with these, so keep
+# them optimized.
+[profile.dev.package.szeel]
+opt-level = 3
+
+[profile.dev.package.rayon-core]
+opt-level = 3

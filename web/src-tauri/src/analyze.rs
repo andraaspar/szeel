@@ -1,11 +1,10 @@
-//! WebAssembly bindings for the szeel editor.
+//! Scene analysis and rendering for the editor.
 //!
-//! Two entry points:
-//! - [`analyze`] parses a scene and returns, as JSON, its diagnostics and an
-//!   outline of every `path` node: its points (with the source ranges of
-//!   their coordinates, so the editor can rewrite them in place) and the
-//!   Bézier segments Hobby's algorithm gives them.
-//! - [`render`] renders a scene, optionally scaled, to straight RGBA bytes.
+//! - [`analyze`] parses a scene and describes its diagnostics and every
+//!   `path` node: its points (with the source ranges of their coordinates,
+//!   so the editor can rewrite them in place) and the Bézier segments
+//!   Hobby's algorithm gives them.
+//! - [`scene`] parses a scene and scales it, ready for rendering.
 //!
 //! All source positions returned are UTF-16 code unit offsets, which is what
 //! JavaScript strings index by.
@@ -13,7 +12,6 @@
 use kdl::{KdlDocument, KdlNode};
 use miette::{Severity, SourceSpan};
 use serde::Serialize;
-use wasm_bindgen::prelude::*;
 
 use szeel::hobby::hobby;
 use szeel::parse::{Scene, parse};
@@ -89,7 +87,7 @@ struct PathInfo {
 }
 
 #[derive(Serialize)]
-struct Analysis {
+pub struct Analysis {
     ok: bool,
     width: u32,
     height: u32,
@@ -105,9 +103,8 @@ fn severity(s: Severity) -> &'static str {
     }
 }
 
-/// Parses `src` and describes it for the editor, as JSON.
-#[wasm_bindgen]
-pub fn analyze(src: &str) -> String {
+/// Parses `src` and describes it for the editor.
+pub fn analyze(src: &str) -> Analysis {
     let off = Offsets::new(src);
     let mut out = Analysis {
         ok: false,
@@ -157,7 +154,7 @@ pub fn analyze(src: &str) -> String {
             }
         }
     }
-    serde_json::to_string(&out).unwrap()
+    out
 }
 
 fn number(v: &kdl::KdlValue) -> Option<f64> {
@@ -250,31 +247,13 @@ fn scale(scene: &mut Scene, s: f64) {
     }
 }
 
-/// Renders `src` at `scale` times its size. Returns straight RGBA bytes,
-/// preceded by the width and height as two little-endian `u32`s, or an empty
-/// array if the scene has errors.
-#[wasm_bindgen]
-pub fn render(src: &str, scale_by: f64) -> Vec<u8> {
-    let Ok(parsed) = parse(src) else {
-        return Vec::new();
-    };
-    let Some(mut scene) = parsed.scene else {
-        return Vec::new();
-    };
+/// Parses `src` and scales it by `scale_by`; `None` if it has errors.
+pub fn scene(src: &str, scale_by: f64) -> Option<Scene> {
+    let mut scene = parse(src).ok()?.scene?;
     if scale_by != 1.0 {
         scale(&mut scene, scale_by);
     }
-    let canvas = szeel::render::render(&scene);
-    let (w, h) = (canvas.width, canvas.height);
-    let mut out = Vec::with_capacity(8 + w * h * 4);
-    out.extend_from_slice(&(w as u32).to_le_bytes());
-    out.extend_from_slice(&(h as u32).to_le_bytes());
-    for y in 0..h {
-        for x in 0..w {
-            out.extend_from_slice(&canvas.pixel(x, y));
-        }
-    }
-    out
+    Some(scene)
 }
 
 #[cfg(test)]
@@ -284,7 +263,7 @@ mod tests {
     #[test]
     fn spans_cover_values() {
         let src = "image width=10 height=10\npath closed=#true {\n    point 1 2.5\n    point 7 8 // c\n    gradient 0 { stop 0 0.5 0.1 0; }\n}\n";
-        let a: serde_json::Value = serde_json::from_str(&analyze(src)).unwrap();
+        let a = serde_json::to_value(analyze(src)).unwrap();
         let p = &a["paths"][0];
         let s = |r: &serde_json::Value| {
             &src[r[0].as_u64().unwrap() as usize..r[1].as_u64().unwrap() as usize]
@@ -292,7 +271,6 @@ mod tests {
         assert_eq!(s(&p["points"][0]["xr"]), "1");
         assert_eq!(s(&p["points"][0]["yr"]), "2.5");
         assert_eq!(s(&p["points"][1]["yr"]), "8");
-        eprintln!("node={:?} point={:?} name={:?}", s(&p["node"]), s(&p["points"][1]["node"]), s(&p["name"]));
         assert_eq!(p["curves"].as_array().unwrap().len(), 2);
     }
 

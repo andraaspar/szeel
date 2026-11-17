@@ -1,0 +1,46 @@
+// The app icon. Regenerate the icon set with:
+//   cargo run --release -- web/src-tauri/icons/icon.kdl /tmp/icon.png
+//   cd web && npx tauri icon /tmp/icon.png -o src-tauri/icons
+// then delete the android/, ios/, Square* and StoreLogo files it adds.
+
+image width=1024 height=1024
+
+// A spiral stroke, its hue running round the left side.
+path {
+    point 512 520
+    point 590 470
+    point 650 560
+    point 540 660
+    point 400 540
+    point 500 360
+    point 720 400
+    point 760 640
+    point 520 800
+    point 290 690
+
+    gradient 0 { stop 0 0.82 0.14 20; stop 70 0.82 0.14 20 0; }
+    gradient 1.2 { stop 0 0.8 0.16 90; stop 80 0.8 0.16 90 0; }
+    gradient 1.8 { stop 0 0.72 0.18 300; stop 60 0.72 0.18 300 0; }
+    gradient 3.5 { stop 0 0.62 0.12 220; stop 26 0.62 0.12 220 0; }
+}
+
+// The tile: a rounded square, dark inside, nothing outside.
+path closed=#true {
+    point 200 104
+    point 512 100
+    point 824 104
+    point 900 124
+    point 920 200
+    point 924 512
+    point 920 824
+    point 900 900
+    point 824 920
+    point 512 924
+    point 200 920
+    point 124 900
+    point 104 824
+    point 100 512
+    point 104 200
+    point 124 124
+    gradient 3 { stop 0 0.32 0.05 250; stop 400 0.2 0.03 275; }
+}

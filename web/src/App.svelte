@@ -1,14 +1,19 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import { listen } from '@tauri-apps/api/event'
+  import { getCurrentWindow } from '@tauri-apps/api/window'
+  import { getCurrentWebview } from '@tauri-apps/api/webview'
+  import { message, open, save } from '@tauri-apps/plugin-dialog'
   import Editor from './lib/Editor.svelte'
   import Preview from './lib/Preview.svelte'
-  import { analyze } from './lib/wasm'
+  import * as backend from './lib/backend'
+  import { baseName, dirName } from './lib/backend'
   import { Renderer } from './lib/renderer'
   import type { Rendered } from './lib/renderer'
   import { deletePoint, insertPoint, movePoint, newPath, pathAt } from './lib/edits'
   import type { Analysis, PointInfo } from './lib/types'
 
-  // --- Examples and the initial document
+  // --- Examples and new scenes
 
   const examples = Object.fromEntries(
     Object.entries(
@@ -29,28 +34,48 @@ path closed=#true {
 }
 `
 
+  const EMPTY: Analysis = { ok: false, width: 0, height: 0, diagnostics: [], paths: [] }
+
+  // --- Stored between sessions
+
   const DRAFT_KEY = 'szeel-editor:draft'
   const SPLIT_KEY = 'szeel-editor:split'
+  const RECENT_KEY = 'szeel-editor:recent'
+  const MAX_RECENT = 10
 
-  function loadDraft(): { text: string; name: string } {
+  /** The text being edited, kept so a crash or a forced close loses nothing. */
+  interface Draft {
+    text: string
+    path: string | null
+    name: string
+  }
+
+  function stored<T>(key: string): T | null {
     try {
-      const d = JSON.parse(localStorage.getItem(DRAFT_KEY) ?? 'null')
-      if (d && typeof d.text === 'string') return { text: d.text, name: String(d.name ?? 'untitled.kdl') }
+      return JSON.parse(localStorage.getItem(key) ?? 'null') as T | null
+    } catch {
+      return null
+    }
+  }
+
+  function store(key: string, value: unknown) {
+    try {
+      localStorage.setItem(key, JSON.stringify(value))
     } catch {
       /* storage unavailable */
     }
-    return { text: examples['rainbow.kdl'] ?? BLANK, name: 'rainbow.kdl' }
   }
-
-  const initial = loadDraft()
 
   // --- State
 
-  let text = $state(initial.text)
-  let fileName = $state(initial.name)
-  let fileHandle: FileSystemFileHandle | null = null
-  let savedText = $state<string | null>(null)
-  let analysis = $state<Analysis>(analyze(initial.text))
+  let text = $state('')
+  /** The file being edited; null for a scene never saved. */
+  let filePath = $state<string | null>(null)
+  /** Name shown for a scene never saved. */
+  let untitledName = $state('untitled.kdl')
+  /** The text as last loaded or saved; null if it differs from everything on disk. */
+  let savedText = $state<string | null>('')
+  let analysis = $state<Analysis>(EMPTY)
   let rendered = $state<Rendered | null>(null)
   let activePath = $state(-1)
   let activePoint = $state(-1)
@@ -60,16 +85,40 @@ path closed=#true {
   let exportScale = $state(1)
   let toast = $state<string | null>(null)
   let split = $state(readSplit())
+  let recent = $state<string[]>(stored<string[]>(RECENT_KEY)?.filter((p) => typeof p === 'string') ?? [])
 
   let editor: Editor
   let preview: Preview
   const renderer = new Renderer()
 
+  const fileName = $derived(filePath ? baseName(filePath) : untitledName)
   const errors = $derived(analysis.diagnostics.filter((d) => d.severity === 'error').length)
   const warnings = $derived(analysis.diagnostics.length - errors)
-  const dirty = $derived(savedText !== null && savedText !== text)
+  const dirty = $derived(savedText !== text)
 
-  // --- Rendering
+  $effect(() => {
+    getCurrentWindow().setTitle(`${dirty ? '• ' : ''}${fileName}${filePath ? ` — ${dirName(filePath)}` : ''} — szeel`)
+  })
+
+  // --- Analysis and rendering
+
+  /** The text `analysis` describes. Its ranges index into this, not into `text`, until they match. */
+  let analyzed = ''
+  let analyzeSeq = 0
+  let cursor = 0
+
+  /** Whether `analysis` describes the current text, so its ranges can be used to edit it. */
+  const current = () => analyzed === text
+
+  async function reanalyze(t: string) {
+    const seq = ++analyzeSeq
+    const a = await backend.analyze(t)
+    if (seq !== analyzeSeq) return
+    analysis = a
+    analyzed = t
+    if (!dragging) onCursor(cursor)
+    requestRender()
+  }
 
   let dragging: { path: number; point: PointInfo } | null = null
   let lastFullMs = 0
@@ -85,39 +134,37 @@ path closed=#true {
   /** A scale that renders in roughly interactive time. */
   function previewScale() {
     const px = analysis.width * analysis.height
-    return px > 0 ? Math.min(1, Math.max(0.1, Math.sqrt(250_000 / px))) : 1
+    return px > 0 ? Math.min(1, Math.max(0.1, Math.sqrt(1_000_000 / px))) : 1
   }
 
   function requestRender() {
     if (!analysis.ok) return
+    const src = analyzed
     clearTimeout(fullTimer)
     const scale = previewScale()
-    if ((dragging || lastFullMs > 90) && scale < 1) {
-      renderer.render(text, scale).then(show)
-      if (!dragging) fullTimer = setTimeout(() => renderer.render(text, 1).then(show), 250)
+    if ((dragging || lastFullMs > 60) && scale < 1) {
+      renderer.render(src, scale).then(show)
+      if (!dragging) fullTimer = setTimeout(() => renderer.render(src, 1).then(show), 250)
     } else {
-      renderer.render(text, 1).then(show)
+      renderer.render(src, 1).then(show)
     }
   }
 
   let draftTimer: ReturnType<typeof setTimeout> | undefined
   function onTextChange(t: string) {
     text = t
-    analysis = analyze(t)
-    if (activePath >= analysis.paths.length) activePath = activePoint = -1
-    requestRender()
+    reanalyze(t)
     clearTimeout(draftTimer)
-    draftTimer = setTimeout(() => {
-      try {
-        localStorage.setItem(DRAFT_KEY, JSON.stringify({ text, name: fileName }))
-      } catch {
-        /* storage unavailable */
-      }
-    }, 400)
+    draftTimer = setTimeout(saveDraft, 400)
+  }
+
+  function saveDraft() {
+    store(DRAFT_KEY, { text, path: filePath, name: fileName } satisfies Draft)
   }
 
   function onCursor(pos: number) {
-    if (dragging) return
+    cursor = pos
+    if (dragging || !current()) return
     activePath = pathAt(analysis.paths, pos)
     activePoint =
       activePath < 0
@@ -132,6 +179,7 @@ path closed=#true {
       activePath = activePoint = -1
       return
     }
+    if (!current()) return
     const path = analysis.paths[pi]
     if (j >= 0) editor.select(path.points[j].node[0], path.points[j].node[0] + 5)
     else editor.select(path.name[0], path.name[1])
@@ -140,6 +188,7 @@ path closed=#true {
   }
 
   function onDragStart(pi: number, j: number) {
+    if (!current()) return
     dragging = { path: pi, point: analysis.paths[pi].points[j] }
     editor.beginTransient()
   }
@@ -150,6 +199,7 @@ path closed=#true {
   }
 
   function onDragEnd() {
+    if (!dragging) return
     editor.commitTransient()
     dragging = null
     clearTimeout(fullTimer)
@@ -161,12 +211,14 @@ path closed=#true {
   }
 
   function onNudge(dx: number, dy: number) {
+    if (!current()) return
     const p = analysis.paths[activePath]?.points[activePoint]
     if (!p) return
     editor.apply(movePoint(p, p.x + dx, p.y + dy, decimalsOf(p)), p.node[0], p.node[0] + 5)
   }
 
   function onInsert(pi: number, after: number, x: number, y: number) {
+    if (!current()) return
     const change = insertPoint(text, analysis.paths[pi], after, Math.round(x), Math.round(y))
     editor.apply([change])
     const at = change.from + change.insert.indexOf('point')
@@ -174,6 +226,7 @@ path closed=#true {
   }
 
   function onDelete(pi: number, j: number) {
+    if (!current()) return
     const path = analysis.paths[pi]
     if (path.points.length <= 2) {
       flash('A path needs at least 2 points')
@@ -194,109 +247,215 @@ path closed=#true {
 
   // --- Files
 
+  const KDL_FILTER = [{ name: 'szeel scene', extensions: ['kdl'] }]
+
   function flash(msg: string) {
     toast = msg
     setTimeout(() => toast === msg && (toast = null), 2500)
   }
 
-  function loadText(t: string, name: string, handle: FileSystemFileHandle | null = null) {
-    fileName = name
-    fileHandle = handle
-    savedText = handle ? t : null
+  function errorText(e: unknown) {
+    return e instanceof Error ? e.message : String(e)
+  }
+
+  /**
+   * Puts `t` in the editor as the scene at `path` (or an untitled one named
+   * `name`). `saved` is the text on disk, if different from `t`. `fit`
+   * fits the scene to the view.
+   */
+  function loadText(t: string, path: string | null, name = 'untitled.kdl', saved: string | null = t, fit = true) {
+    filePath = path
+    untitledName = name
+    savedText = saved
     lastFullMs = 0
-    editor.load(t)
     activePath = activePoint = -1
-    queueMicrotask(() => preview.fit())
+    editor.load(t)
+    if (fit) queueMicrotask(() => preview.fit())
+    backend.watch(path).catch((e) => flash(`Cannot watch ${baseName(path!)}: ${errorText(e)}`))
+    if (path) remember(path)
+    saveDraft()
   }
 
-  function newScene() {
-    loadText(BLANK, 'untitled.kdl')
+  function remember(path: string) {
+    recent = [path, ...recent.filter((p) => p !== path)].slice(0, MAX_RECENT)
+    store(RECENT_KEY, recent)
   }
 
-  function openExample(e: Event) {
+  function forget(path: string) {
+    recent = recent.filter((p) => p !== path)
+    store(RECENT_KEY, recent)
+  }
+
+  /** Asks what to do with unsaved changes. True if it is fine to go on and drop the text. */
+  async function settle(): Promise<boolean> {
+    if (!dirty) return true
+    const answer = await message(`Save the changes to ${fileName}?`, {
+      title: 'Unsaved changes',
+      kind: 'warning',
+      buttons: { yes: 'Save', no: 'Discard', cancel: 'Cancel' },
+    })
+    if (answer === 'Save' || answer === 'Yes') return saveFile()
+    return answer === 'Discard' || answer === 'No'
+  }
+
+  async function newScene() {
+    if (await settle()) loadText(BLANK, null)
+  }
+
+  async function openExample(e: Event) {
     const sel = e.currentTarget as HTMLSelectElement
-    if (sel.value) loadText(examples[sel.value], sel.value)
+    const name = sel.value
     sel.value = ''
+    if (name && (await settle())) loadText(examples[name], null, name)
   }
 
-  let fileInput: HTMLInputElement
+  async function openRecent(e: Event) {
+    const sel = e.currentTarget as HTMLSelectElement
+    const path = sel.value
+    sel.value = ''
+    if (path) openPath(path)
+  }
+
+  async function openPath(path: string) {
+    if (path === filePath) return
+    if (!(await settle())) return
+    try {
+      loadText(await backend.readText(path), path)
+    } catch (e) {
+      forget(path)
+      flash(`Cannot open ${baseName(path)}: ${errorText(e)}`)
+    }
+  }
 
   async function openFile() {
-    const w = window as unknown as { showOpenFilePicker?: (o: object) => Promise<FileSystemFileHandle[]> }
-    if (w.showOpenFilePicker) {
-      try {
-        const [handle] = await w.showOpenFilePicker({
-          types: [{ description: 'szeel scene', accept: { 'text/plain': ['.kdl'] } }],
-        })
-        const file = await handle.getFile()
-        loadText(await file.text(), file.name, handle)
-      } catch {
-        /* cancelled */
-      }
-    } else fileInput.click()
+    const path = await open({
+      filters: KDL_FILTER,
+      defaultPath: filePath ? dirName(filePath) : recent[0] ? dirName(recent[0]) : undefined,
+    })
+    if (path) openPath(path)
   }
 
-  async function onFilePicked() {
-    const file = fileInput.files?.[0]
-    if (file) loadText(await file.text(), file.name)
-    fileInput.value = ''
-  }
-
-  function download(blob: Blob, name: string) {
-    const a = document.createElement('a')
-    a.href = URL.createObjectURL(blob)
-    a.download = name
-    a.click()
-    setTimeout(() => URL.revokeObjectURL(a.href), 1000)
-  }
-
-  async function save() {
-    const w = window as unknown as { showSaveFilePicker?: (o: object) => Promise<FileSystemFileHandle> }
+  /** Saves to `path`, or to the open file. True if saved. */
+  async function writeTo(path: string): Promise<boolean> {
     const snapshot = text
     try {
-      if (!fileHandle && w.showSaveFilePicker) {
-        fileHandle = await w.showSaveFilePicker({
-          suggestedName: fileName,
-          types: [{ description: 'szeel scene', accept: { 'text/plain': ['.kdl'] } }],
-        })
-        fileName = fileHandle.name
-      }
-      if (fileHandle) {
-        const out = await fileHandle.createWritable()
-        await out.write(snapshot)
-        await out.close()
-        savedText = snapshot
-        flash(`Saved ${fileName}`)
-      } else {
-        download(new Blob([snapshot], { type: 'text/plain' }), fileName)
-      }
-    } catch {
-      /* cancelled */
+      await backend.writeText(path, snapshot)
+    } catch (e) {
+      flash(`Cannot save ${baseName(path)}: ${errorText(e)}`)
+      return false
     }
+    savedText = snapshot
+    if (path !== filePath) {
+      filePath = path
+      backend.watch(path).catch(() => {})
+    }
+    remember(path)
+    saveDraft()
+    flash(`Saved ${baseName(path)}`)
+    return true
+  }
+
+  async function saveFileAs(): Promise<boolean> {
+    const path = await save({
+      filters: KDL_FILTER,
+      defaultPath: filePath ?? (recent[0] ? `${dirName(recent[0])}/${untitledName}` : untitledName),
+    })
+    return path ? writeTo(path) : false
+  }
+
+  function saveFile(): Promise<boolean> {
+    return filePath ? writeTo(filePath) : saveFileAs()
   }
 
   async function exportPng() {
     if (!analysis.ok) return flash('Fix the errors first')
-    const r = await renderer.render(text, exportScale)
-    if (!r) return flash('Render failed')
-    const c = document.createElement('canvas')
-    c.width = r.image.width
-    c.height = r.image.height
-    c.getContext('2d')!.drawImage(r.image, 0, 0)
-    r.image.close()
-    c.toBlob((blob) => blob && download(blob, fileName.replace(/\.kdl$/i, '') + (exportScale !== 1 ? `@${exportScale}x` : '') + '.png'))
+    const stem = fileName.replace(/\.kdl$/i, '') + (exportScale !== 1 ? `@${exportScale}x` : '')
+    const path = await save({
+      filters: [{ name: 'PNG image', extensions: ['png'] }],
+      defaultPath: filePath ? `${dirName(filePath)}/${stem}.png` : `${stem}.png`,
+    })
+    if (!path) return
+    flash(`Exporting ${baseName(path)}…`)
+    try {
+      await backend.exportPng(text, exportScale, path)
+      flash(`Exported ${baseName(path)}`)
+    } catch (e) {
+      flash(`Cannot export: ${errorText(e)}`)
+    }
+  }
+
+  // The open file changed on disk: take the new text if nothing here is unsaved, or ask.
+  let changeTimer: ReturnType<typeof setTimeout> | undefined
+  let asking = false
+
+  function onFileChanged(path: string) {
+    if (path !== filePath) return
+    clearTimeout(changeTimer)
+    changeTimer = setTimeout(() => reloadFromDisk(path), 150)
+  }
+
+  async function reloadFromDisk(path: string) {
+    if (asking || path !== filePath) return
+    let disk: string
+    try {
+      disk = await backend.readText(path)
+    } catch {
+      return // Mid-replace or deleted; a later event or the next save sorts it out.
+    }
+    if (disk === savedText || path !== filePath) return
+    if (dirty && disk !== text) {
+      asking = true
+      const reload = await message(`${baseName(path)} was changed by another program. Reload it and lose your changes here?`, {
+        title: 'File changed on disk',
+        kind: 'warning',
+        buttons: { ok: 'Reload', cancel: 'Keep mine' },
+      })
+      asking = false
+      if (reload !== 'Reload' && reload !== 'Ok') {
+        savedText = disk // Don't ask again about this version; saving overwrites it.
+        return
+      }
+    }
+    if (disk === text) {
+      savedText = disk
+      return
+    }
+    loadText(disk, path, undefined, disk, false)
+    flash(`Reloaded ${baseName(path)}`)
+  }
+
+  /** Picks the scene to start with: the file on the command line, else the last session's draft. */
+  async function start() {
+    const arg = await backend.initialFile()
+    if (arg) {
+      try {
+        return loadText(await backend.readText(arg), arg)
+      } catch (e) {
+        flash(`Cannot open ${baseName(arg)}: ${errorText(e)}`)
+      }
+    }
+    const draft = stored<Draft>(DRAFT_KEY)
+    if (draft && typeof draft.text === 'string') {
+      if (draft.path) {
+        try {
+          return loadText(draft.text, draft.path, undefined, await backend.readText(draft.path))
+        } catch {
+          return loadText(draft.text, null, baseName(draft.path), null)
+        }
+      }
+      const name = String(draft.name ?? 'untitled.kdl')
+      // An untouched example or blank scene isn't unsaved work.
+      const pristine = draft.text === examples[name] || draft.text === BLANK
+      return loadText(draft.text, null, name, pristine ? draft.text : null)
+    }
+    loadText(examples['rainbow.kdl'] ?? BLANK, null, 'rainbow.kdl')
   }
 
   // --- Layout
 
   function readSplit() {
-    try {
-      const v = Number(localStorage.getItem(SPLIT_KEY))
-      if (v > 0.1 && v < 0.9) return v
-    } catch {
-      /* storage unavailable */
-    }
-    return 0.4
+    const v = Number(stored<number>(SPLIT_KEY))
+    return v > 0.1 && v < 0.9 ? v : 0.4
   }
 
   let main: HTMLElement
@@ -310,11 +469,7 @@ path closed=#true {
     const up = () => {
       el.removeEventListener('pointermove', move)
       el.removeEventListener('pointerup', up)
-      try {
-        localStorage.setItem(SPLIT_KEY, String(split))
-      } catch {
-        /* storage unavailable */
-      }
+      store(SPLIT_KEY, split)
     }
     el.addEventListener('pointermove', move)
     el.addEventListener('pointerup', up)
@@ -322,31 +477,53 @@ path closed=#true {
 
   function onGlobalKey(e: KeyboardEvent) {
     const mod = e.ctrlKey || e.metaKey
-    if (mod && e.key === 's') {
+    if (!mod) return
+    const key = e.key.toLowerCase()
+    const run = (f: () => unknown) => {
       e.preventDefault()
-      save()
-    } else if (mod && e.key === 'o') {
-      e.preventDefault()
-      openFile()
-    } else if (mod && e.shiftKey && e.key.toLowerCase() === 'e') {
-      e.preventDefault()
-      exportPng()
+      f()
     }
+    if (key === 's' && e.shiftKey) run(saveFileAs)
+    else if (key === 's') run(saveFile)
+    else if (key === 'o') run(openFile)
+    else if (key === 'n') run(newScene)
+    else if (key === 'e' && e.shiftKey) run(exportPng)
   }
 
-  onMount(() => requestRender())
+  onMount(() => {
+    const win = getCurrentWindow()
+    const unlisten = [
+      listen<string>('file-changed', (e) => onFileChanged(e.payload)),
+      win.onCloseRequested(async (e) => {
+        if (!(await settle())) e.preventDefault()
+      }),
+      getCurrentWebview().onDragDropEvent((e) => {
+        if (e.payload.type !== 'drop') return
+        const path = e.payload.paths.find((p) => /\.kdl$/i.test(p))
+        if (path) openPath(path)
+        else if (e.payload.paths.length) flash('Drop a .kdl file to open it')
+      }),
+    ]
+    start()
+    return () => unlisten.forEach((u) => u.then((f) => f()))
+  })
 </script>
 
 <svelte:window onkeydown={onGlobalKey} />
 
 <header>
   <div class="brand">szeel</div>
-  <div class="file" title={fileName}>{fileName}{dirty ? ' •' : ''}</div>
+  <div class="file" title={filePath ?? fileName}>{fileName}{dirty ? ' •' : ''}</div>
 
   <div class="group">
-    <button onclick={newScene}>New</button>
+    <button onclick={newScene} title="Ctrl+N">New</button>
     <button onclick={openFile} title="Ctrl+O">Open…</button>
-    <button onclick={save} title="Ctrl+S">Save</button>
+    <select onchange={openRecent} aria-label="Open a recent file" disabled={!recent.length}>
+      <option value="">Recent…</option>
+      {#each recent as path}<option value={path} title={path}>{baseName(path)} — {dirName(path)}</option>{/each}
+    </select>
+    <button onclick={saveFile} title="Ctrl+S">Save</button>
+    <button onclick={saveFileAs} title="Ctrl+Shift+S">Save as…</button>
     <select onchange={openExample} aria-label="Open an example">
       <option value="">Examples…</option>
       {#each Object.keys(examples) as name}<option value={name}>{name}</option>{/each}
@@ -380,7 +557,7 @@ path closed=#true {
       <option value={2}>2×</option>
       <option value={4}>4×</option>
     </select>
-    <button class="primary" onclick={exportPng} disabled={!analysis.ok} title="Ctrl+Shift+E">Export PNG</button>
+    <button class="primary" onclick={exportPng} disabled={!analysis.ok} title="Ctrl+Shift+E">Export PNG…</button>
   </div>
   <button class="icon" onclick={() => (showHelp = !showHelp)} aria-label="Help" aria-expanded={showHelp}>?</button>
 </header>
@@ -390,7 +567,7 @@ path closed=#true {
     <div class="code">
       <Editor
         bind:this={editor}
-        doc={initial.text}
+        doc={text}
         diagnostics={analysis.diagnostics}
         onchange={onTextChange}
         oncursor={onCursor}
@@ -464,7 +641,8 @@ path closed=#true {
         </dl>
         <h3>Keys</h3>
         <dl>
-          <dt>Ctrl+S / Ctrl+O</dt><dd>Save / open</dd>
+          <dt>Ctrl+N / Ctrl+O</dt><dd>New / open (or drop a .kdl file on the window)</dd>
+          <dt>Ctrl+S</dt><dd>Save (Shift: save as)</dd>
           <dt>Ctrl+Shift+E</dt><dd>Export PNG</dd>
           <dt>Ctrl+Z</dt><dd>Undo (a whole drag is one step)</dd>
         </dl>
@@ -473,8 +651,6 @@ path closed=#true {
     {#if toast}<div class="toast">{toast}</div>{/if}
   </section>
 </main>
-
-<input type="file" accept=".kdl,text/plain" bind:this={fileInput} onchange={onFilePicked} hidden />
 
 <style>
   header {
