@@ -20,3 +20,6 @@ panic = "abort"
 [[bench]]
 name = "render"
 harness = false
+
+[workspace]
+members = [".", "web/wasm"]

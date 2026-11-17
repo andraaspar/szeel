@@ -876,6 +876,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "szeel-wasm"
+version = "0.1.0"
+dependencies = [
+ "kdl",
+ "miette",
+ "serde",
+ "serde_json",
+ "szeel",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "terminal_size"
 version = "0.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"

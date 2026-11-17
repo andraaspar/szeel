@@ -116,6 +116,32 @@ element is composited behind everything drawn before it.
 
 See `examples/mask.kdl` and `examples/reuse.kdl`.
 
+## Editor
+
+`web/` holds a browser editor for scenes: the KDL text on the left, a live
+render on the right, with the paths drawn over it. Drag points to move them,
+double-click a curve to add a point, Alt+click a point to delete it; every
+change is written back into the text. The `?` button lists the rest.
+
+It runs the real renderer, compiled to WebAssembly (`web/wasm/`), in a Web
+Worker. Besides the prerequisites above it needs Node.js 20 or later, the
+WebAssembly target, and a `wasm-bindgen` CLI of the same version as the
+`wasm-bindgen` crate in `Cargo.lock`:
+
+```bash
+rustup target add wasm32-unknown-unknown
+cargo install wasm-bindgen-cli --version 0.2.130 --locked
+```
+
+Then:
+
+```bash
+cd web
+npm install
+npm run dev     # builds the WebAssembly module, then serves on http://localhost:5173
+npm run build   # static site in web/dist
+```
+
 ## Using szeel from Claude
 
 [`skill/`](skill/) holds a skill that lets Claude make images with szeel in
