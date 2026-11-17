@@ -966,7 +966,7 @@ impl Parser {
 
     fn stop(&mut self, node: &KdlNode) -> R<Stop> {
         self.no_children(node)?;
-        let args = self.check_entries(node, 4, 5, &["easing"])?;
+        let args = self.check_entries(node, 4, 5, &["easing", "target"])?;
         // Check every value before failing, so that all errors show at once.
         let check = |me: &mut Self, e: &KdlEntry, what: &str, ok: fn(f64) -> bool, msg: &str| {
             let v = me.number(e, what)?;
@@ -1003,12 +1003,30 @@ impl Parser {
             None => Ok(1.0),
         };
         let easing = self.easing(node);
-        let (d, l, c, h, a, easing) = (d?, l?, c?, h?, a?, easing?);
+        let target = self.target(node);
+        let (d, l, c, h, a, easing, target) = (d?, l?, c?, h?, a?, easing?, target?);
         Ok(Stop {
             dist: d as f32,
             color: Oklch::new(l as f32, c as f32, h as f32, a as f32),
             easing,
+            target,
         })
+    }
+
+    /// The optional `target=…` property of a `stop`: a stop index in the next
+    /// gradient.
+    fn target(&mut self, node: &KdlNode) -> R<Option<usize>> {
+        let Some(e) = node.entry("target") else {
+            return Ok(None);
+        };
+        match e.value() {
+            KdlValue::Integer(i) if *i >= 0 => Ok(Some((*i).min(usize::MAX as i128) as usize)),
+            _ => Err(self.err(
+                Diag::error(e.span(), "`target` must be a whole number, 0 or more")
+                    .label("not a stop index")
+                    .help("the index of a stop in the next gradient, counting from 0"),
+            )),
+        }
     }
 
     fn number(&mut self, e: &KdlEntry, what: &str) -> R<f64> {
@@ -1243,6 +1261,17 @@ path closed=#true {
             }
         );
         assert_eq!(st[2].easing, Easing::Linear);
+        assert!(st.iter().all(|s| s.target.is_none()));
+    }
+
+    #[test]
+    fn stop_target() {
+        let s = ok(&format!(
+            "{IMG}path {{ point 0 0; point 1 1; gradient 0 {{ stop 0 0 0 0 target=2; stop 5 1 0 0; }} }}"
+        ));
+        let st = &s.paths[0].gradients[0].stops;
+        assert_eq!(st[0].target, Some(2));
+        assert_eq!(st[1].target, None);
     }
 
     #[test]
@@ -1284,6 +1313,15 @@ path closed=#true {
                 "image width=5 height=5\npath { point 0 0; point 1 1; gradient 1 { stop 2 0 0 0; stop 1 0 0 0 } }"
             ),
             ["stop distances must not decrease"]
+        );
+        assert_eq!(
+            errors(
+                "image width=5 height=5\npath { point 0 0; point 1 1; gradient 1 { stop 0 0 0 0 target=-1; stop 1 0 0 0 target=1.5 } }"
+            ),
+            [
+                "`target` must be a whole number, 0 or more",
+                "`target` must be a whole number, 0 or more"
+            ]
         );
         assert_eq!(
             errors(

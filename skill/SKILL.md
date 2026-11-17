@@ -94,6 +94,11 @@ gradient to the next one** along `t`; the last gradient's easing leads back
 round to the first. On a closed path each side wraps round **on its own**:
 gradients never blend across sides, so a side with a single gradient
 ignores its easing. Put at least two gradients on a side to ease along it.
+Between two gradients the stops **move**: each stop slides from its own
+distance to its target's distance in the next gradient, its colour turning
+into the target's, so a glow that is 20 px wide at one gradient and 60 px at
+the next widens smoothly rather than cross-fading. The gradient's easing
+paces this movement too. See `target` on stops below.
 `ease-in-out` keeps each gradient's colour longer around
 its own `t` with a quicker change between; `steps(n)` gives banded
 transitions along the path.
@@ -130,7 +135,7 @@ on the points facing the light, darker ones opposite. Write `t` with 4
 decimals and keep it below `4` (for example `3.9987`). Rounding to `4` is out
 of range and triggers a warning.
 
-### Stops: `stop distance L C H [alpha] [easing="…"]`
+### Stops: `stop distance L C H [alpha] [easing="…"] [target=n]`
 
 - `distance`: pixels away from the curve, 0 or more. Distances must not
   decrease within a gradient.
@@ -146,6 +151,20 @@ of range and triggers a warning.
   glows that fall off naturally (`ease-out` on a glow's first stop fades
   quickly near the edge of the core), and `steps(n)` for posterised bands
   without writing every stop: `stop 0 0.3 0.1 250 easing="steps(5)"; stop 100 0.9 0.15 80`.
+- `target`: index (from 0) of the stop in the **next gradient** along `t`
+  that this stop pairs with, moving to it and merging with it. Default: the
+  stop's own index. An index past the next gradient's last stop means its
+  last stop; one below the previous stop's target means that target (stops
+  never cross). Give the gradients the same number of stops for a plain
+  one-to-one tween; send several stops to one `target` to collapse a band
+  (e.g. a core and its glow merging into a single edge). A stop of the next
+  gradient that nothing targets pairs with the stop of its own index here
+  (or the last), kept between the stops whose targets lie either side of it,
+  so it moves out of that stop. The last gradient's targets point at the
+  first gradient of its loop. Targets only apply when leaving a gradient:
+  coming back the other way round the loop, the other gradient's targets
+  apply, so give both gradients matching targets if both sides of a path
+  should tween alike.
 - **Hue is interpolated numerically**, not the short way round the colour
   wheel. Blending H 355 → 8 passes through cyan (a green band appears in the
   middle). Write the neighbour as `-5` or `368` instead, and for warm ↔ cool

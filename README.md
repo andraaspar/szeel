@@ -81,10 +81,22 @@ element is composited behind everything drawn before it.
   Left and right are as seen on screen when travelling along the path. On a
   closed path only the sides exist: 1–2 (left) and 3–4 (right). If the points
   go clockwise on screen, the inside is the right side.
-- **Stops.** `stop distance L C H [alpha] [easing="…"]` gives an OKLCH colour at a distance
+- **Stops.** `stop distance L C H [alpha] [easing="…"] [target=n]` gives an OKLCH colour at a distance
   in pixels from the path. Distances must not decrease, and alpha defaults
   to 1. The last stop's colour continues forever: end with alpha 0 for a glow
   of limited width, or opaque to fill out to the image edges.
+- **Tweening.** Between one gradient and the next along `t`, the stops of
+  the two are paired up, and each pair moves from the first gradient's stop
+  to the second's, the colour turning from one to the other. `target=n`
+  pairs a stop with stop `n` (counting from 0) of the next gradient; without
+  it, a stop pairs with the stop with its own index. An index past the next
+  gradient's last stop means that last stop, so several stops can merge into
+  one, and an index below the previous stop's target means that target, so
+  stops never cross. A stop of the next gradient that nothing targets pairs
+  by the same rule (its own index, or the last stop), held between the stops
+  whose targets lie either side of it. How far the stops have moved is set
+  by the gradient's easing. Targets only apply going forward along `t`; the
+  way back round the loop uses the other gradient's targets.
 - **Easing.** `easing="…"` on a stop sets how the colour moves from that stop
   to the next one; on a gradient (`gradient t easing="…" { … }`) it sets how
   the colour moves from that gradient to the next one along `t`. Either takes
