@@ -7,6 +7,8 @@
   import Editor from './lib/Editor.svelte'
   import Preview from './lib/Preview.svelte'
   import * as backend from './lib/backend'
+  import { installMenu } from './lib/menu'
+  import type { AppMenu } from './lib/menu'
   import { baseName, dirName } from './lib/backend'
   import { Renderer } from './lib/renderer'
   import type { Rendered } from './lib/renderer'
@@ -81,7 +83,6 @@ path closed=#true {
   let activePoint = $state(-1)
   let showOverlay = $state(true)
   let showHidden = $state(true)
-  let showHelp = $state(false)
   let exportScale = $state(1)
   let toast = $state<string | null>(null)
   let split = $state(readSplit())
@@ -302,18 +303,8 @@ path closed=#true {
     if (await settle()) loadText(BLANK, null)
   }
 
-  async function openExample(e: Event) {
-    const sel = e.currentTarget as HTMLSelectElement
-    const name = sel.value
-    sel.value = ''
-    if (name && (await settle())) loadText(examples[name], null, name)
-  }
-
-  async function openRecent(e: Event) {
-    const sel = e.currentTarget as HTMLSelectElement
-    const path = sel.value
-    sel.value = ''
-    if (path) openPath(path)
+  async function openExample(name: string) {
+    if (await settle()) loadText(examples[name], null, name)
   }
 
   async function openPath(path: string) {
@@ -475,19 +466,42 @@ path closed=#true {
     el.addEventListener('pointerup', up)
   }
 
-  function onGlobalKey(e: KeyboardEvent) {
-    const mod = e.ctrlKey || e.metaKey
-    if (!mod) return
-    const key = e.key.toLowerCase()
-    const run = (f: () => unknown) => {
-      e.preventDefault()
-      f()
-    }
-    if (key === 's' && e.shiftKey) run(saveFileAs)
-    else if (key === 's') run(saveFile)
-    else if (key === 'o') run(openFile)
-    else if (key === 'n') run(newScene)
-    else if (key === 'e' && e.shiftKey) run(exportPng)
+  // --- Menu
+
+  let menu = $state.raw<AppMenu>()
+  const canExport = $derived(analysis.ok)
+  let canUndo = $state(false)
+  let canRedo = $state(false)
+
+  $effect(() => {
+    menu?.update({ recent, canExport, canUndo, canRedo, exportScale, showOverlay, showHidden })
+  })
+
+  async function setUpMenu() {
+    menu = await installMenu(
+      {
+        newScene,
+        openFile,
+        openRecent: openPath,
+        openExample,
+        saveFile,
+        saveFileAs,
+        exportPng,
+        setExportScale: (s) => (exportScale = s),
+        quit: () => getCurrentWindow().close(),
+        undo: () => editor.undo(),
+        redo: () => editor.redo(),
+        addPath,
+        setOverlay: (on) => (showOverlay = on),
+        setHidden: (on) => (showHidden = on),
+        zoomIn: () => preview.zoomBy(1.25),
+        zoomOut: () => preview.zoomBy(1 / 1.25),
+        fit: () => preview.fit(),
+        actualSize: () => preview.actualSize(),
+      },
+      Object.keys(examples),
+      (path) => `${baseName(path)} — ${dirName(path)}`,
+    )
   }
 
   onMount(() => {
@@ -505,62 +519,10 @@ path closed=#true {
       }),
     ]
     start()
+    setUpMenu().catch((e) => flash(`Cannot set up the menu: ${errorText(e)}`))
     return () => unlisten.forEach((u) => u.then((f) => f()))
   })
 </script>
-
-<svelte:window onkeydown={onGlobalKey} />
-
-<header>
-  <div class="brand">szeel</div>
-  <div class="file" title={filePath ?? fileName}>{fileName}{dirty ? ' •' : ''}</div>
-
-  <div class="group">
-    <button onclick={newScene} title="Ctrl+N">New</button>
-    <button onclick={openFile} title="Ctrl+O">Open…</button>
-    <select onchange={openRecent} aria-label="Open a recent file" disabled={!recent.length}>
-      <option value="">Recent…</option>
-      {#each recent as path}<option value={path} title={path}>{baseName(path)} — {dirName(path)}</option>{/each}
-    </select>
-    <button onclick={saveFile} title="Ctrl+S">Save</button>
-    <button onclick={saveFileAs} title="Ctrl+Shift+S">Save as…</button>
-    <select onchange={openExample} aria-label="Open an example">
-      <option value="">Examples…</option>
-      {#each Object.keys(examples) as name}<option value={name}>{name}</option>{/each}
-    </select>
-  </div>
-
-  <div class="group">
-    <button onclick={addPath} title="Add a path in front of everything, at the centre of the view">+ Path</button>
-  </div>
-
-  <div class="group">
-    <label class="check"><input type="checkbox" bind:checked={showOverlay} /> Overlay</label>
-    <label class="check" class:disabled={!showOverlay}>
-      <input type="checkbox" bind:checked={showHidden} disabled={!showOverlay} /> Masks &amp; defs
-    </label>
-  </div>
-
-  <div class="group">
-    <button onclick={() => preview.zoomBy(1 / 1.25)} aria-label="Zoom out">−</button>
-    <button onclick={() => preview.fit()}>Fit</button>
-    <button onclick={() => preview.actualSize()}>100%</button>
-    <button onclick={() => preview.zoomBy(1.25)} aria-label="Zoom in">+</button>
-  </div>
-
-  <div class="spacer"></div>
-
-  <div class="group">
-    <select bind:value={exportScale} aria-label="Export scale">
-      <option value={0.5}>0.5×</option>
-      <option value={1}>1×</option>
-      <option value={2}>2×</option>
-      <option value={4}>4×</option>
-    </select>
-    <button class="primary" onclick={exportPng} disabled={!analysis.ok} title="Ctrl+Shift+E">Export PNG…</button>
-  </div>
-  <button class="icon" onclick={() => (showHelp = !showHelp)} aria-label="Help" aria-expanded={showHelp}>?</button>
-</header>
 
 <main bind:this={main} style:grid-template-columns="{split * 100}% 6px 1fr">
   <section class="left">
@@ -571,6 +533,7 @@ path closed=#true {
         diagnostics={analysis.diagnostics}
         onchange={onTextChange}
         oncursor={onCursor}
+        onhistory={(u, r) => ((canUndo = u), (canRedo = r))}
       />
     </div>
     <div class="problems" class:has-errors={errors > 0}>
@@ -619,84 +582,11 @@ path closed=#true {
       ondelete={onDelete}
       onnudge={onNudge}
     />
-    {#if showHelp}
-      <aside class="help-panel">
-        <h3>Preview</h3>
-        <dl>
-          <dt>Drag a point</dt><dd>Move it (Shift: 0.1 px steps)</dd>
-          <dt>Click a curve</dt><dd>Select its path</dd>
-          <dt>Double-click a curve</dt><dd>Insert a point there</dd>
-          <dt>Alt+click a point</dt><dd>Delete it</dd>
-          <dt>Arrows</dt><dd>Nudge the selected point (Shift: 10 px)</dd>
-          <dt>Delete</dt><dd>Delete the selected point</dd>
-          <dt>Wheel / pinch</dt><dd>Zoom at the cursor</dd>
-          <dt>Drag background</dt><dd>Pan</dd>
-        </dl>
-        <h3>Overlay</h3>
-        <dl>
-          <dt><span class="swatch draw"></span>Solid</dt><dd>Drawn paths</dd>
-          <dt><span class="swatch mask"></span>Dashed</dt><dd>Mask paths</dd>
-          <dt><span class="swatch defs"></span>Dotted</dt><dd>Paths in <code>defs</code></dd>
-          <dt>Thick ring</dt><dd>First point of a path</dd>
-        </dl>
-        <h3>Keys</h3>
-        <dl>
-          <dt>Ctrl+N / Ctrl+O</dt><dd>New / open (or drop a .kdl file on the window)</dd>
-          <dt>Ctrl+S</dt><dd>Save (Shift: save as)</dd>
-          <dt>Ctrl+Shift+E</dt><dd>Export PNG</dd>
-          <dt>Ctrl+Z</dt><dd>Undo (a whole drag is one step)</dd>
-        </dl>
-      </aside>
-    {/if}
     {#if toast}<div class="toast">{toast}</div>{/if}
   </section>
 </main>
 
 <style>
-  header {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 6px 10px;
-    background: var(--panel-2);
-    border-bottom: 1px solid var(--border);
-    flex-wrap: wrap;
-  }
-  .brand {
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    color: var(--accent);
-  }
-  .file {
-    color: var(--muted);
-    font: 12px var(--mono);
-    max-width: 18ch;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .group {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    padding-left: 10px;
-    border-left: 1px solid var(--border);
-  }
-  .spacer {
-    flex: 1;
-  }
-  .check {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    font-size: 12px;
-    color: var(--text);
-    padding: 0 4px;
-    cursor: pointer;
-  }
-  .check.disabled {
-    opacity: 0.5;
-  }
   main {
     flex: 1;
     min-height: 0;
@@ -780,60 +670,6 @@ path closed=#true {
   .help {
     grid-column: 2;
     color: var(--muted);
-  }
-  .help-panel {
-    position: absolute;
-    top: 10px;
-    right: 10px;
-    width: 300px;
-    max-height: calc(100% - 60px);
-    overflow: auto;
-    background: var(--panel-2);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 4px 14px 10px;
-    font-size: 12px;
-    box-shadow: 0 8px 30px rgb(0 0 0 / 0.4);
-  }
-  .help-panel h3 {
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--muted);
-    margin: 12px 0 6px;
-  }
-  .help-panel dl {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    gap: 4px 12px;
-    margin: 0;
-  }
-  .help-panel dt {
-    color: var(--text);
-    font-weight: 600;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-  .help-panel dd {
-    margin: 0;
-    color: var(--muted);
-  }
-  .swatch {
-    width: 16px;
-    height: 0;
-    border-top: 2px solid;
-  }
-  .swatch.draw {
-    border-color: var(--role-draw);
-  }
-  .swatch.mask {
-    border-color: var(--role-mask);
-    border-top-style: dashed;
-  }
-  .swatch.defs {
-    border-color: var(--role-defs);
-    border-top-style: dotted;
   }
   .toast {
     position: absolute;

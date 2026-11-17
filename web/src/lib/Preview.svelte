@@ -44,7 +44,6 @@
   let zoom = $state(1)
   let tx = $state(0)
   let ty = $state(0)
-  let cursor = $state<{ x: number; y: number } | null>(null)
   let fitted = false
 
   const w = $derived(analysis.width)
@@ -196,9 +195,8 @@
   }
 
   function onMove(e: PointerEvent) {
-    const p = local(e)
-    cursor = toScene(p.x, p.y)
     if (!gesture) return
+    const p = local(e)
     if (gesture.kind === 'pan') {
       if (Math.abs(p.x - gesture.x) + Math.abs(p.y - gesture.y) > 3) gesture.moved = true
       tx = gesture.tx + p.x - gesture.x
@@ -206,7 +204,8 @@
     } else {
       gesture.moved = true
       const decimals = e.shiftKey || zoom >= 4 ? 1 : 0
-      ondrag(cursor.x + gesture.dx, cursor.y + gesture.dy, decimals)
+      const s = toScene(p.x, p.y)
+      ondrag(s.x + gesture.dx, s.y + gesture.dy, decimals)
     }
   }
 
@@ -266,7 +265,6 @@
   onpointermove={onMove}
   onpointerup={onUp}
   onpointercancel={onUp}
-  onpointerleave={() => (cursor = null)}
   onkeydown={onKey}
 >
   <div
@@ -322,7 +320,6 @@
   {/if}
 
   <div class="hud">
-    {#if cursor}<span>{Math.round(cursor.x)}, {Math.round(cursor.y)}</span>{/if}
     <span>{Math.round(zoom * 100)}%</span>
     {#if rendered}<span title="Render time">{rendered.ms.toFixed(0)} ms{rendered.scale < 1 ? ` @ ${Math.round(rendered.scale * 100)}%` : ''}</span>{/if}
   </div>

@@ -121,8 +121,7 @@ See `examples/mask.kdl` and `examples/reuse.kdl`.
 `web/` holds a desktop editor for scenes, built with Tauri 2: the KDL text on
 the left, a live render on the right, with the paths drawn over it. Drag
 points to move them, double-click a curve to add a point, Alt+click a point
-to delete it; every change is written back into the text. The `?` button
-lists the rest.
+to delete it; every change is written back into the text.
 
 The UI (`web/src`, Svelte) does the editing; the Rust side
 (`web/src-tauri`) parses and renders with the `szeel` crate, natively and in

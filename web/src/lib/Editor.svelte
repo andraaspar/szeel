@@ -11,7 +11,7 @@
     keymap,
     lineNumbers,
   } from '@codemirror/view'
-  import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
+  import { defaultKeymap, history, historyKeymap, indentWithTab, redo as cmRedo, redoDepth, undo as cmUndo, undoDepth } from '@codemirror/commands'
   import { bracketMatching, foldGutter, foldKeymap, indentOnInput, indentUnit } from '@codemirror/language'
   import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete'
   import { highlightSelectionMatches, searchKeymap } from '@codemirror/search'
@@ -25,8 +25,14 @@
     diagnostics: Diagnostic[]
     onchange: (text: string) => void
     oncursor: (pos: number) => void
+    /** Whether there is anything to undo or redo; called when that may have changed. */
+    onhistory: (canUndo: boolean, canRedo: boolean) => void
   }
-  let { doc, diagnostics, onchange, oncursor }: Props = $props()
+  let { doc, diagnostics, onchange, oncursor, onhistory }: Props = $props()
+
+  function reportHistory(state: EditorState) {
+    onhistory(undoDepth(state) > 0, redoDepth(state) > 0)
+  }
 
   let host: HTMLDivElement
   let view: EditorView | undefined
@@ -77,11 +83,15 @@
             indentWithTab,
           ]),
           EditorView.updateListener.of((u) => {
-            if (u.docChanged) onchange(u.state.doc.toString())
+            if (u.docChanged) {
+              onchange(u.state.doc.toString())
+              reportHistory(u.state)
+            }
             if (u.selectionSet || u.docChanged) oncursor(u.state.selection.main.head)
           }),
         ]
     view = new EditorView({ parent: host, state: EditorState.create({ doc, extensions }) })
+    reportHistory(view.state)
     return () => view?.destroy()
   })
 
@@ -111,6 +121,15 @@
     view.setState(EditorState.create({ doc: text, extensions }))
     onchange(text)
     oncursor(0)
+    reportHistory(view.state)
+  }
+
+  export function undo() {
+    if (view) cmUndo(view)
+  }
+
+  export function redo() {
+    if (view) cmRedo(view)
   }
 
   export function apply(changes: Change[], selectFrom?: number, selectTo?: number) {
