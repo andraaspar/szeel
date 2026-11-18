@@ -8,11 +8,11 @@
 image width=1920 height=1080
 
 path {
-    point 255 255
-    point 300 420
-    point 500 390
-    point 690 330
-    point 770 510
+    node 255 255
+    node 300 420
+    node 500 390
+    node 690 330
+    node 770 510
 
     // Start: red glow in bright blue (spans t = 3.9 → 4 ≡ 0 → 1.1).
     gradient 3.9 {

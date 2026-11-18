@@ -304,28 +304,28 @@ mod tests {
 
     #[test]
     fn expands_compact_blocks() {
-        let src = "path { point 0 0; point 1 1; gradient 1 { stop 0 0 0 0; stop 2 1 0 0; } }\n";
+        let src = "path { node 0 0; node 1 1; gradient 1 { stop 0 0 0 0; stop 2 1 0 0; } }\n";
         assert_eq!(
             format(src).unwrap(),
-            "path {\n    point 0 0\n    point 1 1\n    gradient 1 {\n        stop 0 0 0 0\n        stop 2 1 0 0\n    }\n}\n"
+            "path {\n    node 0 0\n    node 1 1\n    gradient 1 {\n        stop 0 0 0 0\n        stop 2 1 0 0\n    }\n}\n"
         );
     }
 
     #[test]
     fn fixes_indentation_and_spacing() {
-        let src = "image   width = 10 height=10\n  path closed=#true{\n point 0 0\n\t\t\tpoint 1   1\n  }";
+        let src = "image   width = 10 height=10\n  loop{\n node 0 0\n\t\t\tnode 1   1\n  }";
         assert_eq!(
             format(src).unwrap(),
-            "image width=10 height=10\npath closed=#true {\n    point 0 0\n    point 1 1\n}\n"
+            "image width=10 height=10\nloop {\n    node 0 0\n    node 1 1\n}\n"
         );
     }
 
     #[test]
     fn keeps_comments_and_one_blank_line() {
-        let src = "\n\nimage width=10 height=10\n\n\n\n// Background.\npath {\n\n    // First.\n    point 0 0 // origin\n\n    point 1 1 /* a */; point 2 2\n\n} // end\n\n\n";
+        let src = "\n\nimage width=10 height=10\n\n\n\n// Background.\npath {\n\n    // First.\n    node 0 0 // origin\n\n    node 1 1 /* a */; node 2 2\n\n} // end\n\n\n";
         assert_eq!(
             format(src).unwrap(),
-            "image width=10 height=10\n\n// Background.\npath {\n    // First.\n    point 0 0 // origin\n\n    point 1 1 /* a */\n    point 2 2\n} // end\n"
+            "image width=10 height=10\n\n// Background.\npath {\n    // First.\n    node 0 0 // origin\n\n    node 1 1 /* a */\n    node 2 2\n} // end\n"
         );
     }
 
@@ -346,8 +346,8 @@ mod tests {
 
     #[test]
     fn indents_continued_lines() {
-        let src = "path {\npoint 1 \\\n2\n}\n";
-        assert_eq!(format(src).unwrap(), "path {\n    point 1 \\\n        2\n}\n");
+        let src = "path {\nnode 1 \\\n2\n}\n";
+        assert_eq!(format(src).unwrap(), "path {\n    node 1 \\\n        2\n}\n");
     }
 
     #[test]

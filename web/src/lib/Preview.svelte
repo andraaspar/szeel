@@ -331,7 +331,7 @@
               }}
             >
               <title
-                >{p.id ? `${p.id} · ` : ''}point {j + 1}: {pt.x}, {pt.y}{pt.cusp ? ' · cusp' : ''} (double-click or C to toggle cusp)</title
+                >{p.id ? `${p.id} · ` : ''}node {j + 1}: {pt.x}, {pt.y}{pt.cusp ? ' · cusp' : ''} (double-click or C to toggle cusp)</title
               >
             </path>
           {/each}

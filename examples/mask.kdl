@@ -1,32 +1,32 @@
 image width=800 height=600
 
-// A background with a hole punched by an inverted mask.
+// A background with a hole punched by an `unmask`.
 path {
-    mask invert=#true {
+    unmask {
         path {
-            point 380 300
-            point 420 300
+            node 380 300
+            node 420 300
             gradient 0 {
                 stop 0 0 0 0
                 stop 20 0 0 0 0
             }
         }
     }
-    point 0 0
-    point 1 0
+    node 0 0
+    node 1 0
     gradient 0 {
         stop 0 0.95 0.02 90
     }
 }
 
-// Subtraction: a soft disc with a slot cut out by an inverted mask inside
+// Subtraction: a soft disc with a slot cut out by an `unmask` inside
 // its mask.
 group {
     mask {
-        mask invert=#true {
+        unmask {
             path {
-                point 620 500
-                point 740 500
+                node 620 500
+                node 740 500
                 gradient 0 {
                     stop 0 0 0 0
                     stop 8 0 0 0
@@ -35,8 +35,8 @@ group {
             }
         }
         path {
-            point 680 500
-            point 680.01 500
+            node 680 500
+            node 680.01 500
             gradient 0 {
                 stop 0 0 0 0
                 stop 60 0 0 0
@@ -45,8 +45,8 @@ group {
         }
     }
     path {
-        point 600 420
-        point 760 580
+        node 600 420
+        node 760 580
         gradient 1.5 {
             stop 0 0.8 0.15 90
             stop 120 0.6 0.15 30
@@ -64,8 +64,8 @@ path {
     mask {
         mask {
             path {
-                point 0 520
-                point 800 520
+                node 0 520
+                node 800 520
                 gradient 0 {
                     stop 0 0 0 0
                     stop 50 0 0 0
@@ -73,11 +73,11 @@ path {
                 }
             }
         }
-        path closed=#true {
-            point 120 420
-            point 200 500
-            point 120 580
-            point 40 500
+        loop {
+            node 120 420
+            node 200 500
+            node 120 580
+            node 40 500
             gradient 1 {
                 stop 0 0 0 0
                 stop 25 0 0 0 0
@@ -88,8 +88,8 @@ path {
             }
         }
     }
-    point 120 0
-    point 120 600
+    node 120 0
+    node 120 600
     gradient 0 {
         stop 0 0.7 0.17 150
         stop 200 0.7 0.17 150
@@ -100,11 +100,11 @@ path {
 group {
     mask {
         // Colour is ignored in masks; only alpha matters.
-        path closed=#true {
-            point 400 150
-            point 600 300
-            point 400 450
-            point 200 300
+        loop {
+            node 400 150
+            node 600 300
+            node 400 450
+            node 200 300
             gradient 1 {
                 stop 0 0 0 0
                 stop 40 0 0 0 0
@@ -115,16 +115,16 @@ group {
         }
     }
     path {
-        point 100 350
-        point 700 350
+        node 100 350
+        node 700 350
         gradient 1.5 {
             stop 0 0.55 0.12 250
             stop 30 0.55 0.12 250 0
         }
     }
     path {
-        point 100 250
-        point 700 250
+        node 100 250
+        node 700 250
         gradient 1.5 {
             stop 0 0.75 0.18 40
             stop 30 0.75 0.18 40 0

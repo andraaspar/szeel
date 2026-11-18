@@ -64,22 +64,22 @@ struct Diagnostic {
 struct Point {
     x: f64,
     y: f64,
-    /// Source range of the whole `point` node.
+    /// Source range of the whole `node` or `cusp` node.
     node: [usize; 2],
     /// Source ranges of the x and y values.
     xr: [usize; 2],
     yr: [usize; 2],
-    /// Whether the curve may turn sharply here (`cusp=#true`).
+    /// Whether the curve may turn sharply here (a `cusp`, not a `node`).
     cusp: bool,
-    /// Source range of the `cusp` property, if present.
-    cr: Option<[usize; 2]>,
+    /// Source range of the node name, `node` or `cusp`.
+    nr: [usize; 2],
 }
 
 #[derive(Serialize)]
 struct PathInfo {
-    /// Source range of the whole `path` node, children included.
+    /// Source range of the whole `path` or `loop` node, children included.
     node: [usize; 2],
-    /// Source range of the `path` name.
+    /// Source range of the `path` or `loop` name.
     name: [usize; 2],
     id: Option<String>,
     closed: bool,
@@ -169,11 +169,11 @@ fn outline(doc: &KdlDocument, role: &'static str, off: &Offsets, out: &mut Vec<P
     for node in doc.nodes() {
         let name = node.name().value();
         let child_role = match name {
-            "mask" => "mask",
+            "mask" | "unmask" => "mask",
             "defs" => "defs",
             _ => role,
         };
-        if name == "path" {
+        if name == "path" || name == "loop" {
             out.push(path_info(node, role, off));
         }
         if let Some(children) = node.children() {
@@ -183,27 +183,28 @@ fn outline(doc: &KdlDocument, role: &'static str, off: &Offsets, out: &mut Vec<P
 }
 
 fn path_info(node: &KdlNode, role: &'static str, off: &Offsets) -> PathInfo {
-    let closed = node.get("closed").and_then(|v| v.as_bool()).unwrap_or(false);
+    let closed = node.name().value() == "loop";
     let id = node.get("id").and_then(|v| v.as_string()).map(str::to_owned);
     let mut points = Vec::new();
     for child in node.children().map(|d| d.nodes()).unwrap_or_default() {
-        if child.name().value() != "point" {
-            continue;
-        }
+        let cusp = match child.name().value() {
+            "node" => false,
+            "cusp" => true,
+            _ => continue,
+        };
         let args: Vec<_> = child.entries().iter().filter(|e| e.name().is_none()).collect();
         let [ex, ey] = args.as_slice() else { continue };
         let (Some(x), Some(y)) = (number(ex.value()), number(ey.value())) else {
             continue;
         };
-        let ce = child.entry("cusp");
         points.push(Point {
             x,
             y,
             node: off.range(child.span()),
             xr: off.range(ex.span()),
             yr: off.range(ey.span()),
-            cusp: ce.and_then(|e| e.value().as_bool()).unwrap_or(false),
-            cr: ce.map(|e| off.range(e.span())),
+            cusp,
+            nr: off.range(child.name().span()),
         });
     }
     PathInfo {
@@ -278,7 +279,7 @@ mod tests {
 
     #[test]
     fn spans_cover_values() {
-        let src = "image width=10 height=10\npath closed=#true {\n    point 1 2.5\n    point 7 8 // c\n    gradient 0 { stop 0 0.5 0.1 0; }\n}\n";
+        let src = "image width=10 height=10\nloop {\n    node 1 2.5\n    node 7 8 // c\n    gradient 0 { stop 0 0.5 0.1 0; }\n}\n";
         let a = serde_json::to_value(analyze(src)).unwrap();
         let p = &a["paths"][0];
         let s = |r: &serde_json::Value| {
@@ -292,18 +293,17 @@ mod tests {
 
     #[test]
     fn cusps() {
-        let src = "image width=10 height=10\npath {\n    point 0 0\n    point 5 5 cusp=#true\n    point 9 0 cusp=#false\n}\n";
+        let src = "image width=10 height=10\npath {\n    node 0 0\n    cusp 5 5\n    node 9 0\n}\n";
         let a = serde_json::to_value(analyze(src)).unwrap();
         let pts = &a["paths"][0]["points"];
         let s = |r: &serde_json::Value| {
             &src[r[0].as_u64().unwrap() as usize..r[1].as_u64().unwrap() as usize]
         };
         assert_eq!(pts[0]["cusp"], false);
-        assert!(pts[0]["cr"].is_null());
+        assert_eq!(s(&pts[0]["nr"]), "node");
         assert_eq!(pts[1]["cusp"], true);
-        assert_eq!(s(&pts[1]["cr"]), "cusp=#true");
+        assert_eq!(s(&pts[1]["nr"]), "cusp");
         assert_eq!(pts[2]["cusp"], false);
-        assert_eq!(s(&pts[2]["cr"]), "cusp=#false");
         // Two straight segments meeting at the cusp.
         let c = a["paths"][0]["curves"].as_array().unwrap();
         assert_eq!(c.len(), 2);

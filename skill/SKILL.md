@@ -74,10 +74,10 @@ transparent.
 ### Paths
 
 ```kdl
-path closed=#false id="name" { // both properties optional
-    point 100 500 // x y in pixels, y points DOWN
-    point 400 150
-    point 700 500
+path id="name" { // or `loop` for a closed path; `id` is optional
+    node 100 500 // x y in pixels, y points DOWN
+    node 400 150
+    node 700 500
     gradient 1.5 {
         stop 0 0.75 0.18 40
         stop 60 0.75 0.18 40 0
@@ -90,28 +90,28 @@ path closed=#false id="name" { // both properties optional
 }
 ```
 
-- The points are joined by a smooth curve through all of them (Hobby's
-  algorithm, like MetaPost). Two points give a straight segment. A closed path
-  loops back smoothly to the first point.
-- `point x y cusp=#true` makes a **sharp corner** at that point: the curve is
-  cut there, and each stretch between cusps is its own smooth curve. Cusps on
-  every point give a polygon with straight sides. A stretch of three points
+- The nodes are joined by a smooth curve through all of them (Hobby's
+  algorithm, like MetaPost). Two nodes give a straight segment. A `loop` is a
+  closed path: it joins back smoothly to the first node.
+- `cusp x y` (instead of `node x y`) makes a **sharp corner** there: the curve
+  is cut there, and each stretch between cusps is its own smooth curve. A
+  `loop` of cusps only is a polygon with straight sides. A stretch of three nodes
   with the middle one far from the line between the others bulges into a
   half-circle whose ends meet the next stretch smoothly, so pull the middle
-  point closer to see the corner. A cusp on the first or last point of an
-  open path does nothing.
-- Two almost identical points (`point 400 300; point 400.01 300`) act as a
+  node closer to see the corner. A cusp as the first or last node of an open
+  `path` does nothing.
+- Two almost identical nodes (`node 400 300; node 400.01 300`) act as a
   **dot**: its gradients become a radial glow.
 
-### Gradients: `gradient t [easing="…"] { stop … }`
+### Gradients: `gradient t [ease=…] { stop … }`
 
 `t` says **where around the path** the gradient sits. Each pixel blends the
 two gradients on either side of its own `t`, wrapping around, so a single
 gradient applies all the way round.
 
-`easing` (same values as on a stop, see below) shapes the blend from **this
+`ease` (same values as on a stop, see below) shapes the blend from **this
 gradient to the next one** along `t`; the last gradient's easing leads back
-round to the first. On a closed path each side wraps round **on its own**:
+round to the first. On a `loop` each side wraps round **on its own**:
 gradients never blend across sides, so a side with a single gradient
 ignores its easing. Put at least two gradients on a side to ease along it.
 Between two gradients the stops **move**: each stop slides from its own
@@ -119,7 +119,7 @@ distance to its target's distance in the next gradient, its colour turning
 into the target's, so a glow that is 20 px wide at one gradient and 60 px at
 the next widens smoothly rather than cross-fading. The gradient's easing
 paces this movement too. See `target` on stops below.
-`ease-in-out` keeps each gradient's colour longer around
+`ease=in-out` keeps each gradient's colour longer around
 its own `t` with a quicker change between; `steps(n)` gives banded
 transitions along the path.
 
@@ -137,7 +137,7 @@ to the last. Example: a path drawn left to right has its **left side above**
 it and its right side below it. `t = 1.5` is above the middle, and `t = 3.5`
 is below the middle.
 
-Closed path: only the two sides exist. Left is `[1, 2)` and right is `[3, 4)`.
+`loop`: only the two sides exist. Left is `[1, 2)` and right is `[3, 4)`.
 Gradients with other `t` values are ignored, with a warning. If the points go
 **clockwise on screen**, the **inside is the right side** (`3…4`) and the
 outside is the left (`1…2`). If they go anticlockwise, it's the other way round.
@@ -146,16 +146,16 @@ To test orientation in code (y down): the shoelace sum
 `Σ(x_i·y_{i+1} − x_{i+1}·y_i)` is **positive for clockwise on screen**. Reverse
 the points if it is negative.
 
-**`t` per point on a closed path.** With N points in clockwise order, point k
-sits at `t = 4 − k/N` on the inside (point 0 at `t = 3.0`). The right side
-runs _backwards_ through the points. Outside, point k sits at `t = 1 + k/N`.
-One gradient per point therefore gives each part of the outline its own
+**`t` per node on a `loop`.** With N nodes in clockwise order, node k
+sits at `t = 4 − k/N` on the inside (node 0 at `t = 3.0`). The right side
+runs _backwards_ through the nodes. Outside, node k sits at `t = 1 + k/N`.
+One gradient per node therefore gives each part of the outline its own
 colour. This is how you light a shape from one direction: lighter gradients
-on the points facing the light, darker ones opposite. Write `t` with 4
+on the nodes facing the light, darker ones opposite. Write `t` with 4
 decimals and keep it below `4` (for example `3.9987`). Rounding to `4` is out
 of range and triggers a warning.
 
-### Stops: `stop distance L C H [alpha] [easing="…"] [target=n]`
+### Stops: `stop distance L C H [alpha] [ease=…] [target=n]`
 
 - `distance`: pixels away from the curve, 0 or more. Distances must not
   decrease within a gradient.
@@ -164,13 +164,14 @@ of range and triggers a warning.
   roughly 30 red, 70 orange, 100 yellow, 145 green, 200 cyan, 250 blue,
   300 purple, 350 pink.
 - `alpha`: from 0 to 1, default 1.
-- `easing`: how the colour moves from **this stop to the next**, as a CSS
-  easing function: `linear` (default), `ease`, `ease-in`, `ease-out`,
-  `ease-in-out`, `cubic-bezier(x1, y1, x2, y2)`, `steps(n[, jump-start|jump-end|jump-none|jump-both])`,
-  `step-start`, `step-end`. Overshooting curves are clamped. Useful for soft
-  glows that fall off naturally (`ease-out` on a glow's first stop fades
+- `ease`: how the colour moves from **this stop to the next**: `no`
+  (default, CSS `linear`), `yes`, `in`, `out`, `in-out` (CSS `ease`,
+  `ease-in`, `ease-out`, `ease-in-out`), or `"cubic-bezier(x1, y1, x2, y2)"`,
+  `"steps(n[, jump-start|jump-end|jump-none|jump-both])"`, `step-start`,
+  `step-end`. Quote values with parentheses. Overshooting curves are clamped.
+  Useful for soft glows that fall off naturally (`ease=out` on a glow's first stop fades
   quickly near the edge of the core), and `steps(n)` for posterised bands
-  without writing every stop: `stop 0 0.3 0.1 250 easing="steps(5)"; stop 100 0.9 0.15 80`.
+  without writing every stop: `stop 0 0.3 0.1 250 ease="steps(5)"; stop 100 0.9 0.15 80`.
 - `target`: index (from 0) of the stop in the **next gradient** along `t`
   that this stop pairs with, moving to it and merging with it. Default: the
   stop's own index. An index past the next gradient's last stop means its
@@ -211,7 +212,7 @@ group id="g" {
         …
     }
 }
-mask invert=#false {
+mask {
     path {
         …
     }
@@ -234,12 +235,13 @@ use "shape" {
 }
 ```
 
-- A `mask` goes inside a `path`, `group`, `use` or another `mask`, at most one
-  per element. Only the mask's **alpha** counts; its colours are ignored
-  (write `0 0 0`). The element is multiplied by the mask's alpha, or by
-  1 − alpha with `invert=#true`.
+- A `mask` goes inside a `path`, `loop`, `group`, `use` or another mask, at
+  most one per element. Only the mask's **alpha** counts; its colours are
+  ignored (write `0 0 0`). The element is multiplied by the mask's alpha.
+  `unmask { … }` is the inverted mask: it multiplies by 1 − alpha, so its
+  shapes cut holes. An element has one `mask` or one `unmask`, not both.
 - Several shapes in one mask make a union. A mask inside a mask makes an
-  intersection. An inverted mask inside a mask subtracts.
+  intersection. An `unmask` inside a mask subtracts.
 - An `id` must be unique and defined before any `use` of it. Everything inside
   `defs` is drawn only where it is used. Because later elements are in front,
   a highlight painted over a shape can use that shape's `id` as its mask.
@@ -262,8 +264,8 @@ covers everything:
 
 ```kdl
 path {
-    point 0 0
-    point 1 0
+    node 0 0
+    node 1 0
     gradient 0 {
         stop 0 0.15 0.04 270
     }
@@ -278,8 +280,8 @@ for a horizon.
 
 ```kdl
 path {
-    point 0 450
-    point 1600 450
+    node 0 450
+    node 1600 450
     gradient 1.5 {
         stop 0 0.5 0.13 340
         stop 450 0.12 0.05 270
@@ -296,10 +298,10 @@ side):
 
 ```kdl
 path {
-    point 200 600
-    point 600 300
-    point 1000 500
-    point 1400 250
+    node 200 600
+    node 600 300
+    node 1000 500
+    node 1400 250
     gradient 1.0 {
         stop 0 0.85 0.2 30
         stop 70 0.6 0.2 30 0
@@ -319,15 +321,15 @@ To make a **round, even end cap**, put matching gradients just either side of
 the cap, for example at `3.9` and `1.1` for the start, or `1.9` and `3.1` for
 the end.
 
-Soft blob: a closed path drawn clockwise, light inside and fading out
+Soft blob: a `loop` drawn clockwise, light inside and fading out
 outside:
 
 ```kdl
-path closed=#true {
-    point 600 300
-    point 900 350
-    point 850 600
-    point 550 550
+loop {
+    node 600 300
+    node 900 350
+    node 850 600
+    node 550 550
     gradient 3.5 {
         stop 0 0.9 0.1 80
         stop 120 0.98 0.02 80
@@ -343,18 +345,18 @@ Hole punched through an element:
 
 ```kdl
 path {
-    mask invert=#true {
+    unmask {
         path {
-            point 780 450
-            point 820 450
+            node 780 450
+            node 820 450
             gradient 0 {
                 stop 0 0 0 0
                 stop 40 0 0 0 0
             }
         }
     }
-    point 0 0
-    point 1 0
+    node 0 0
+    node 1 0
     gradient 0 {
         stop 0 0.95 0.02 90
     }
@@ -402,9 +404,9 @@ and narrow ends:
 
 ```kdl
 path {
-    point 400 300
-    point 420 420
-    point 410 560
+    node 400 300
+    node 420 420
+    node 410 560
     // caps invisible
     gradient 0.5 {
         stop 0 0.7 0.17 55 0
@@ -453,10 +455,10 @@ highlights and texture. Then turn each field into szeel layers:
    array by ~40 px, so contours run past silhouettes and image edges.
 2. For each level, take the filled iso-regions (for example with `contourpy`),
    resample to ~8–10 px spacing, smooth lightly and orient clockwise.
-3. Emit one closed path per region with one gradient per point: alpha 0 at
+3. Emit one `loop` per region with one gradient per node: alpha 0 at
    the edge, rising to the layer's alpha over a **feather equal to that
    point's distance to the next level's region** (capped). Stacked levels then
-   blend smoothly. Subtract holes with `mask invert=#true`.
+   blend smoothly. Subtract holes with `unmask`.
 4. Place small surface details using the model's projected geometry. Marks
    placed by eye in 2D look as if they float off the surface.
 

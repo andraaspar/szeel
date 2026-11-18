@@ -12,14 +12,14 @@ export interface Diagnostic {
 export interface PointInfo {
   x: number
   y: number
-  /** The whole `point` node. */
+  /** The whole `node` or `cusp` node. */
   node: Range
   xr: Range
   yr: Range
-  /** Whether the curve may turn sharply here (`cusp=#true`). */
+  /** Whether the curve may turn sharply here (a `cusp`, not a `node`). */
   cusp: boolean
-  /** The `cusp` property, if present. */
-  cr: Range | null
+  /** The node name, `node` or `cusp`. */
+  nr: Range
 }
 
 export type Role = 'draw' | 'mask' | 'defs'

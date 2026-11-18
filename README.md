@@ -74,30 +74,32 @@ still works front to back internally, so it can skip whatever is hidden.)
 | Node       | Where                                  | Contents                                                     |
 | ---------- | -------------------------------------- | ------------------------------------------------------------ |
 | `image`    | first, top level only                  | `width`, `height` properties                                 |
-| `path`     | top level, `group`, `mask`, `defs`     | `point x y [cusp=#true]`, `gradient t { stop … }`, at most one `mask`; `closed`, `id` properties |
-| `group`    | top level, `group`, `mask`, `defs`     | `path`, `group`, `use`, at most one `mask`; `id` property    |
-| `use "id"` | top level, `group`, `mask`             | at most one `mask`                                           |
-| `mask`     | in `path`, `group`, `use` or `mask`    | `path`, `group`, `use`, at most one `mask`; `invert` property |
-| `defs`     | top level, any number of times         | `path`, `group`                                              |
+| `path`     | top level, `group`, `mask`, `defs`     | `node x y`, `cusp x y`, `gradient t { stop … }`, at most one `mask` or `unmask`; `id` property |
+| `loop`     | same as `path`                         | same as `path`                                               |
+| `group`    | top level, `group`, `mask`, `defs`     | `path`, `loop`, `group`, `use`, at most one `mask` or `unmask`; `id` property |
+| `use "id"` | top level, `group`, `mask`             | at most one `mask` or `unmask`                               |
+| `mask`     | in `path`, `loop`, `group`, `use` or `mask` | `path`, `loop`, `group`, `use`, at most one `mask` or `unmask` |
+| `unmask`   | same as `mask`                         | same as `mask`                                               |
+| `defs`     | top level, any number of times         | `path`, `loop`, `group`                                      |
 
-- **Paths.** The points are joined by a smooth curve through all of them
-  (Hobby's algorithm). Coordinates are in pixels, with y pointing down. A
-  `closed=#true` path loops back to its first point. Each pixel is coloured
-  from its closest point on the path.
-- **Cusps.** `point x y cusp=#true` lets the curve turn sharply at that
-  point: the path is cut there, and each stretch between cusps is a smooth
-  curve of its own (like MetaPost's `&`). A stretch of two points is straight,
-  so cusps on every point give a polygon. On an open path, a cusp on the first
-  or last point does nothing. See `examples/cusp.kdl`.
+- **Paths.** The nodes (`node x y`) are joined by a smooth curve through all
+  of them (Hobby's algorithm). Coordinates are in pixels, with y pointing
+  down. A `loop` is a closed path: it joins its last node back to its first.
+  Each pixel is coloured from its closest point on the path.
+- **Cusps.** `cusp x y` is a node where the curve may turn sharply: the path
+  is cut there, and each stretch between cusps is a smooth curve of its own
+  (like MetaPost's `&`). A stretch of two nodes is straight, so a `loop` of
+  cusps only is a polygon. On an open path, a cusp as the first or last node
+  does nothing. See `examples/cusp.kdl`.
 - **Gradients.** `gradient t { … }` places a colour ramp at position `t` around
   the path. A pixel blends the two gradients on either side of its own `t`,
   wrapping around. On an open path, `t` runs from 0 to 4: 0–1 is the cap
   around the start point, 1–2 is the left side from start to end, 2–3 is the
   cap around the end point, and 3–4 is the right side from end back to start.
   Left and right are as seen on screen when travelling along the path. On a
-  closed path only the sides exist: 1–2 (left) and 3–4 (right). If the points
+  `loop` only the sides exist: 1–2 (left) and 3–4 (right). If the nodes
   go clockwise on screen, the inside is the right side.
-- **Stops.** `stop distance L C H [alpha] [easing="…"] [target=n]` gives an OKLCH colour at a distance
+- **Stops.** `stop distance L C H [alpha] [ease=…] [target=n]` gives an OKLCH colour at a distance
   in pixels from the path. Distances must not decrease, and alpha defaults
   to 1. The last stop's colour continues forever: end with alpha 0 for a glow
   of limited width, or opaque to fill out to the image edges.
@@ -113,15 +115,17 @@ still works front to back internally, so it can skip whatever is hidden.)
   whose targets lie either side of it. How far the stops have moved is set
   by the gradient's easing. Targets only apply going forward along `t`; the
   way back round the loop uses the other gradient's targets.
-- **Easing.** `easing="…"` on a stop sets how the colour moves from that stop
-  to the next one; on a gradient (`gradient t easing="…" { … }`) it sets how
+- **Easing.** `ease=…` on a stop sets how the colour moves from that stop
+  to the next one; on a gradient (`gradient t ease=… { … }`) it sets how
   the colour moves from that gradient to the next one along `t`. Either takes
-  a CSS easing function: `linear` (the default), `ease`, `ease-in`,
-  `ease-out`, `ease-in-out`, `cubic-bezier(x1, y1, x2, y2)`,
-  `steps(n[, jump-start|jump-end|jump-none|jump-both|start|end])`,
-  `step-start` or `step-end`. Gradients blend in a loop that wraps round, so
+  `no` (the default, CSS `linear`), `yes`, `in`, `out` or `in-out` (CSS
+  `ease`, `ease-in`, `ease-out` and `ease-in-out`), or one of the CSS easing
+  functions `"cubic-bezier(x1, y1, x2, y2)"`,
+  `"steps(n[, jump-start|jump-end|jump-none|jump-both|start|end])"`,
+  `step-start` or `step-end`. Values with parentheses need quotes. Gradients
+  blend in a loop that wraps round, so
   the last gradient's easing leads back to the first. On an open path the
-  loop is the whole of `t`; on a closed path each side is a loop of its own,
+  loop is the whole of `t`; on a `loop` each side is a loop of its own,
   and gradients never blend across sides. Easing on the last stop, or on a
   gradient that is alone in its loop (the only one on a path or on a side),
   does nothing. A `cubic-bezier` that overshoots is clamped, so the blend
@@ -129,10 +133,11 @@ still works front to back internally, so it can skip whatever is hidden.)
 - **Groups** collect paths and other groups. On its own a group changes
   nothing; it matters when it has a mask.
 - **Masks.** Only a mask's alpha counts (stop colours are still written in
-  full). The masked element is scaled by the mask's alpha, or by one minus it
-  with `invert=#true`. A masked group is drawn as a whole first, then scaled.
+  full). The masked element is scaled by the mask's alpha; an `unmask` is an
+  inverted mask, which scales it by one minus the alpha. A masked group is
+  drawn as a whole first, then scaled.
   Combine masks by nesting: several shapes in one mask are a union, a `mask`
-  inside a `mask` is an intersection, and an inverted mask inside a mask
+  inside a `mask` is an intersection, and an `unmask` inside a mask
   subtracts.
 - **Reuse.** Give a `path` or `group` an `id` (unique in the file) and draw it
   again with `use "id"`, in the image or inside masks. A `use` can have a mask
@@ -149,9 +154,9 @@ See `examples/mask.kdl` and `examples/reuse.kdl`.
 
 `web/` holds a desktop editor for scenes, built with Tauri 2: the KDL text on
 the left, a live render on the right, with the paths drawn over it. Drag
-points to move them, double-click a curve to add a point, Alt+click a point
-to delete it, and double-click a point (or select it and press C) to turn a
-cusp on or off; cusps show as diamonds. Every change is written back into the
+nodes to move them, double-click a curve to add a node, Alt+click a node
+to delete it, and double-click a node (or select it and press C) to switch
+it between `node` and `cusp`; cusps show as diamonds. Every change is written back into the
 text. Edit → Format Document (Ctrl+Shift+F) lays the text out one node per
 line with four-space indents, keeping comments and blank lines between nodes.
 

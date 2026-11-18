@@ -1105,20 +1105,20 @@ mod tests {
 
     /// A path covering the whole image in one colour.
     fn fill(l: f32, a: f32) -> String {
-        format!("path {{ point 0 0; point 1 0; gradient 0 {{ stop 0 {l} 0 0 {a}; }} }}")
+        format!("path {{ node 0 0; node 1 0; gradient 0 {{ stop 0 {l} 0 0 {a}; }} }}")
     }
 
     /// A hard-edged horizontal band of half-width `r` around `y`.
     fn hband(y: f32, r: f32, a: f32) -> String {
         format!(
-            "path {{ point -1000 {y}; point 1000 {y}; gradient 0 {{ stop 0 0 0 0 {a}; stop {r} 0 0 0 {a}; stop {r} 0 0 0 0; }} }}"
+            "path {{ node -1000 {y}; node 1000 {y}; gradient 0 {{ stop 0 0 0 0 {a}; stop {r} 0 0 0 {a}; stop {r} 0 0 0 0; }} }}"
         )
     }
 
     /// A hard-edged vertical band of half-width `r` around `x`.
     fn vband(x: f32, r: f32, l: f32, a: f32) -> String {
         format!(
-            "path {{ point {x} -1000; point {x} 1000; gradient 0 {{ stop 0 {l} 0 0 {a}; stop {r} {l} 0 0 {a}; stop {r} {l} 0 0 0; }} }}"
+            "path {{ node {x} -1000; node {x} 1000; gradient 0 {{ stop 0 {l} 0 0 {a}; stop {r} {l} 0 0 {a}; stop {r} {l} 0 0 0; }} }}"
         )
     }
 
@@ -1129,13 +1129,13 @@ mod tests {
             r#"
 image width=70 height=40
 path {
-    point 0 0
-    point 1 0
+    node 0 0
+    node 1 0
     gradient 0 { stop 0 0.45201 0.31321 264.052; }
 }
 path {
-    point -10 20
-    point 80 20
+    node -10 20
+    node 80 20
     gradient 0 {
         stop 0 0.62796 0.25768 29.2339
         stop 3 0.62796 0.25768 29.2339
@@ -1169,11 +1169,11 @@ path {
         let s = scene(
             r#"
 image width=50 height=50
-path closed=#true {
-    point 25 10
-    point 40 25
-    point 25 40
-    point 10 25
+loop {
+    node 25 10
+    node 40 25
+    node 25 40
+    node 10 25
     gradient 1.5 { stop 0 0.5 0.1 120; stop 2 0.5 0.1 120 0; }
 }
 "#,
@@ -1189,7 +1189,7 @@ path closed=#true {
     #[test]
     fn unrenderable_paths_paint_nothing() {
         let o = run(
-            "image width=4 height=4\npath { point 1 1; point 1 1; gradient 0 { stop 0 0 0 0; } }\npath { point 0 0; point 1 1 }",
+            "image width=4 height=4\npath { node 1 1; node 1 1; gradient 0 { stop 0 0 0 0; } }\npath { node 0 0; node 1 1 }",
         );
         assert!(pixels(&o.c).iter().all(|p| *p == [0; 4]));
         assert_eq!(o.prepared, 0);
@@ -1232,8 +1232,8 @@ path closed=#true {
             "{p:?} vs {expect:?}"
         );
         let separate = render(&scene(&format!(
-            "image width=4 height=4\npath {{ {mask}; point 0 0; point 1 0; gradient 0 {{ stop 0 0 0 0 0.5; }} }}\n\
-             path {{ {mask}; point 0 0; point 1 0; gradient 0 {{ stop 0 1 0 0 0.5; }} }}"
+            "image width=4 height=4\npath {{ {mask}; node 0 0; node 1 0; gradient 0 {{ stop 0 0 0 0 0.5; }} }}\n\
+             path {{ {mask}; node 0 0; node 1 0; gradient 0 {{ stop 0 1 0 0 0.5; }} }}"
         )));
         // (.25, .25, .25, .25) with black at .5 · .5 behind: alpha .4375.
         let expect = to_rgba8([0.25, 0.25, 0.25, 0.4375]);
@@ -1256,12 +1256,12 @@ path closed=#true {
         };
         let c = render(&scene(&el(&format!("mask {{ {band} }}"))));
         assert_eq!((c.pixel(3, 15)[3], c.pixel(3, 16)[3]), (255, 0));
-        let c = render(&scene(&el(&format!("mask invert=#true {{ {band} }}"))));
+        let c = render(&scene(&el(&format!("unmask {{ {band} }}"))));
         assert_eq!((c.pixel(3, 15)[3], c.pixel(3, 16)[3]), (0, 255));
         let o = run(&el("mask { }"));
         assert!(pixels(&o.c).iter().all(|p| p[3] == 0));
         assert_eq!(o.shaded, 0);
-        let c = render(&scene(&el("mask invert=#true { }")));
+        let c = render(&scene(&el("unmask { }")));
         assert!(pixels(&c).iter().all(|p| p[3] == 255));
     }
 
@@ -1288,7 +1288,7 @@ path closed=#true {
         assert_eq!(vis(&c), [255, 0, 0, 0]);
         // Subtraction: an inverted mask inside a mask.
         let c = render(&scene(&el(&format!(
-            "mask {{ mask invert=#true {{ {top} }}; {left} }}"
+            "mask {{ unmask {{ {top} }}; {left} }}"
         ))));
         assert_eq!(vis(&c), [0, 0, 255, 0]);
     }
@@ -1297,7 +1297,7 @@ path closed=#true {
     fn mask_clips_reach() {
         // 4 × 4 tiles; the mask only covers the first rows of the top tiles.
         let src = format!(
-            "image width=128 height=128\npath {{ mask {{ {} }}; point 0 0; point 1 0; gradient 0 {{ stop 0 0.5 0 0; }} }}",
+            "image width=128 height=128\npath {{ mask {{ {} }}; node 0 0; node 1 0; gradient 0 {{ stop 0 0.5 0 0; }} }}",
             hband(2.0, 2.0, 1.0)
         );
         let o = run(&src);
@@ -1319,13 +1319,13 @@ path closed=#true {
         let img = "image width=128 height=128\n";
         // Clockwise on screen: the left side (t = 1) is outside.
         // Hobby's curve through these is nearly a circle, of radius 8.5 around (14, 14).
-        let cw = "point 8 8; point 20 8; point 20 20; point 8 20";
-        let ccw = "point 8 8; point 8 20; point 20 20; point 20 8";
+        let cw = "node 8 8; node 20 8; node 20 20; node 8 20";
+        let ccw = "node 8 8; node 8 20; node 20 20; node 20 8";
         let outer = |t: u32| format!("gradient {t} {{ stop 0 0 0 0; stop 2 0 0 0 0; }}");
         let solid = |t: u32| format!("gradient {t} {{ stop 0 0 0 0; }}");
         let shape = |pts: &str, a: u32, b: u32| {
             format!(
-                "{img}path closed=#true {{ {pts}; {}; {} }}",
+                "{img}loop {{ {pts}; {}; {} }}",
                 outer(a),
                 solid(b)
             )
@@ -1342,12 +1342,12 @@ path closed=#true {
         assert!(matches!(path_reach(&shape(cw, 3, 1), 0), Reach::All));
         assert!(matches!(path_reach(&shape(ccw, 1, 3), 0), Reach::All));
         // A figure 8 can reach out from either side.
-        let eight = "point 8 8; point 20 20; point 20 8; point 8 20";
+        let eight = "node 8 8; node 20 20; node 20 8; node 8 20";
         assert!(matches!(path_reach(&shape(eight, 1, 3), 0), Reach::All));
 
         // A full-image path under a filled-shape mask only touches one tile.
         let o = run(&format!(
-            "{img}path {{ mask {{ path closed=#true {{ {cw}; {}; {} }} }}; point 0 0; point 1 0; gradient 0 {{ stop 0 0.5 0 0; }} }}",
+            "{img}path {{ mask {{ loop {{ {cw}; {}; {} }} }}; node 0 0; node 1 0; gradient 0 {{ stop 0 0.5 0 0; }} }}",
             outer(1),
             solid(3)
         ));
@@ -1361,7 +1361,7 @@ path closed=#true {
     fn inverted_opaque_mask_is_exactly_zero() {
         // Two paths at .99 make the mask alpha .9999: past OPAQUE, not 1.
         let o = run(&format!(
-            "image width=8 height=8\ngroup {{ mask invert=#true {{ {}; {} }}; {} }}",
+            "image width=8 height=8\ngroup {{ unmask {{ {}; {} }}; {} }}",
             fill(0.0, 0.99),
             fill(0.0, 0.99),
             fill(0.5, 1.0)
@@ -1445,14 +1445,14 @@ path closed=#true {
     fn a_path_used_many_times_is_prepared_once() {
         let a = vband(10.0, 4.0, 0.9, 0.1).replacen("path {", "path id=\"a\" {", 1);
         let o = run(&format!(
-            "image width=64 height=64\ndefs {{ {a} }}\nuse \"a\"\nuse \"a\"\ngroup {{ mask {{ use \"a\" }}; use \"a\" }}\nuse \"a\" {{ mask invert=#true {{ use \"a\" }} }}"
+            "image width=64 height=64\ndefs {{ {a} }}\nuse \"a\"\nuse \"a\"\ngroup {{ mask {{ use \"a\" }}; use \"a\" }}\nuse \"a\" {{ unmask {{ use \"a\" }} }}"
         ));
         assert_eq!(o.prepared, 1);
     }
 
     #[test]
     fn shared_masks_are_cached() {
-        let spot = "path id=\"spot\" closed=#true { point 4 4; point 28 4; point 16 28; gradient 1 { stop 0 0 0 0 0.7; stop 6 0 0 0 0; }; gradient 3 { stop 0 0 0 0 0.7; } }";
+        let spot = "loop id=\"spot\" { node 4 4; node 28 4; node 16 28; gradient 1 { stop 0 0 0 0 0.7; stop 6 0 0 0 0; }; gradient 3 { stop 0 0 0 0 0.7; } }";
         let (x, y) = (vband(10.0, 6.0, 0.9, 0.6), hband(12.0, 5.0, 0.6));
         let shared = run(&format!(
             "image width=32 height=32\ndefs {{ {spot} }}\ngroup {{ mask {{ use \"spot\" }}; {x} }}\ngroup {{ mask {{ use \"spot\" }}; {y} }}"

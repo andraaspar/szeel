@@ -6,15 +6,15 @@ use szeel::render::render;
 
 /// `n` stacked open paths with `points` points each, each with an implicit width.
 fn many_paths(width: u32, height: u32, n: usize, points: usize) -> String {
-    many_paths_eased(width, height, n, points, "linear")
+    many_paths_eased(width, height, n, points, "no")
 }
 
 /// [`many_paths`] with `easing` on every gradient and every stop.
 fn many_paths_eased(width: u32, height: u32, n: usize, points: usize, easing: &str) -> String {
-    let e = format!("easing=\"{easing}\"");
+    let e = format!("ease=\"{easing}\"");
     let mut s = format!("image width={width} height={height}\n");
     // An opaque background path that fills everything else.
-    s += "path closed=#true { point 100 100; point 900 200; point 500 700\n";
+    s += "loop { node 100 100; node 900 200; node 500 700\n";
     s += "gradient 1 { stop 0 0.3 0.05 250; stop 500 0.1 0.02 280; }\n";
     s += "gradient 3 { stop 0 0.9 0.03 80; }\n}\n";
     // Back first, so path 0 ends up in front.
@@ -23,7 +23,7 @@ fn many_paths_eased(width: u32, height: u32, n: usize, points: usize, easing: &s
         for j in 0..points {
             let x = (j as f64 + 0.5) / points as f64 * width as f64;
             let y = height as f64 * (0.5 + 0.4 * ((j as f64 * 0.9 + i as f64 * 0.37).sin()));
-            s += &format!("point {x:.2} {y:.2}\n");
+            s += &format!("node {x:.2} {y:.2}\n");
         }
         let hue = (i * 37) % 360;
         s += &format!(
@@ -42,15 +42,15 @@ fn many_paths_eased(width: u32, height: u32, n: usize, points: usize, easing: &s
 /// own, in front of an opaque background.
 fn masked_groups(width: u32, height: u32, n: usize) -> String {
     let mut s = format!("image width={width} height={height}\n");
-    s += "path { point 0 0; point 1 0; gradient 0 { stop 0 0.2 0.03 260; } }\n";
+    s += "path { node 0 0; node 1 0; gradient 0 { stop 0 0.2 0.03 260; } }\n";
     // Back first, so group 0 ends up in front.
     for i in (0..n).rev() {
         let (cx, cy) = ((i * 397) % width as usize, (i * 211) % height as usize);
         let r = 150 + (i * 37) % 100;
-        s += "group {\n    mask { path closed=#true {\n";
+        s += "group {\n    mask { loop {\n";
         for (dx, dy) in [(0i64, -1i64), (1, 0), (0, 1), (-1, 0)] {
             s += &format!(
-                "        point {} {}\n",
+                "        node {} {}\n",
                 cx as i64 + dx * r as i64,
                 cy as i64 + dy * r as i64
             );
@@ -60,7 +60,7 @@ fn masked_groups(width: u32, height: u32, n: usize) -> String {
             let y = cy as i64 + (k as i64 - 1) * 60;
             let hue = (i * 37 + k * 90) % 360;
             s += &format!(
-                "    path {{ point {} {y}; point {} {y}; gradient 1.5 {{ stop 0 0.7 0.15 {hue} 0.7; stop 40 0.7 0.15 {hue} 0; }} }}\n",
+                "    path {{ node {} {y}; node {} {y}; gradient 1.5 {{ stop 0 0.7 0.15 {hue} 0.7; stop 40 0.7 0.15 {hue} 0; }} }}\n",
                 cx as i64 - 2 * r as i64,
                 cx as i64 + 2 * r as i64
             );
@@ -77,22 +77,22 @@ fn nested_mask(width: u32, height: u32, depth: usize) -> String {
     for i in 0..depth {
         let r = 100 + 40 * i;
         s += &format!(
-            "mask {{ path {{ point {} {cy}; point {} {cy}; gradient 0 {{ stop 0 0 0 0 0.95; stop {r} 0 0 0 0; }} }}\n",
+            "mask {{ path {{ node {} {cy}; node {} {cy}; gradient 0 {{ stop 0 0 0 0 0.95; stop {r} 0 0 0 0; }} }}\n",
             cx - 1,
             cx + 1
         );
     }
     s += &"}\n".repeat(depth);
-    s += "point 0 0\npoint 1 0\ngradient 0 { stop 0 0.7 0.1 30; }\n}\n";
+    s += "node 0 0\nnode 1 0\ngradient 0 { stop 0 0.7 0.1 30; }\n}\n";
     s
 }
 
 /// `n` strokes that all share one mask through `use`.
 fn shared_mask(width: u32, height: u32, n: usize) -> String {
     let mut s =
-        format!("image width={width} height={height}\ndefs {{ path id=\"m\" closed=#true {{\n");
+        format!("image width={width} height={height}\ndefs {{ loop id=\"m\" {{\n");
     s += &format!(
-        "point {} {}; point {} {}; point {} {}\n",
+        "node {} {}; node {} {}; node {} {}\n",
         width / 4,
         height / 4,
         width * 3 / 4,
@@ -104,7 +104,7 @@ fn shared_mask(width: u32, height: u32, n: usize) -> String {
     for i in (0..n).rev() {
         let y = (i as u32 * height) / n as u32;
         s += &format!(
-            "path {{ mask {{ use \"m\" }}; point 0 {y}; point {width} {}; gradient 1.5 {{ stop 0 0.7 0.15 {}; stop 50 0.7 0.15 {} 0; }} }}\n",
+            "path {{ mask {{ use \"m\" }}; node 0 {y}; node {width} {}; gradient 1.5 {{ stop 0 0.7 0.15 {}; stop 50 0.7 0.15 {} 0; }} }}\n",
             height - y,
             i * 17 % 360,
             i * 17 % 360
@@ -124,7 +124,7 @@ fn benches(c: &mut Criterion) {
         g.bench_function(name, |b| b.iter(|| render(black_box(&scene))));
     }
     for (name, easing) in [
-        ("1920x1080, 20 paths x 12 points, ease", "ease"),
+        ("1920x1080, 20 paths x 12 points, ease", "yes"),
         ("1920x1080, 20 paths x 12 points, steps(4)", "steps(4)"),
         (
             "1920x1080, 20 paths x 12 points, linear-shaped bezier",

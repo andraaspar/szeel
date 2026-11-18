@@ -1,15 +1,15 @@
 image width=800 height=600
 
-// `cusp=#true` lets the curve turn sharply at a point instead of passing
+// A `cusp` is a node where the curve may turn sharply instead of passing
 // through it smoothly. Each stretch between cusps is its own smooth curve.
 
-// A zig-zag stroke: cusps on every inner point give straight sides.
+// A zig-zag stroke: cusps on every inner node give straight sides.
 path {
-    point 470 450
-    point 540 150 cusp=#true
-    point 610 450 cusp=#true
-    point 680 150 cusp=#true
-    point 750 450
+    node 470 450
+    cusp 540 150
+    cusp 610 450
+    cusp 680 150
+    node 750 450
     gradient 1.5 {
         stop 0 0.65 0.2 30
         stop 12 0.65 0.2 30 0
@@ -20,13 +20,13 @@ path {
     }
 }
 
-// A leaf: a closed loop with a sharp tip at each end.
-path closed=#true {
-    point 120 300 cusp=#true
-    point 260 220
-    point 400 300 cusp=#true
-    point 260 380
-    // Inside (right side, the points go clockwise): green, darker inward.
+// A leaf: a loop with a sharp tip at each end.
+loop {
+    cusp 120 300
+    node 260 220
+    cusp 400 300
+    node 260 380
+    // Inside (right side, the nodes go clockwise): green, darker inward.
     gradient 3.5 {
         stop 0 0.72 0.17 140
         stop 60 0.45 0.12 150

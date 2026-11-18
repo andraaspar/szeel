@@ -258,9 +258,9 @@ enum Ctx {
 impl Ctx {
     fn allowed(self) -> &'static [&'static str] {
         match self {
-            Ctx::Top => &["image", "path", "group", "use", "defs"],
-            Ctx::Group | Ctx::Mask => &["path", "group", "use", "mask"],
-            Ctx::Defs => &["path", "group"],
+            Ctx::Top => &["image", "path", "loop", "group", "use", "defs"],
+            Ctx::Group | Ctx::Mask => &["path", "loop", "group", "use", "mask", "unmask"],
+            Ctx::Defs => &["path", "loop", "group"],
         }
     }
 }
@@ -336,7 +336,7 @@ impl Parser {
                 }
                 continue;
             }
-            if matches!(name, "path" | "group" | "use" | "defs") && first_element.is_none() {
+            if matches!(name, "path" | "loop" | "group" | "use" | "defs") && first_element.is_none() {
                 first_element = Some(name);
                 if size.is_none() && ok {
                     self.err(
@@ -425,12 +425,13 @@ impl Parser {
         if ok { Ok(()) } else { Err(Failed) }
     }
 
-    /// Reads one node of a list of children. Returns `None` for a `mask`,
+    /// Reads one node of a list of children. Returns `None` for a `mask` or
+    /// `unmask`,
     /// which is stored in `slot`.
     fn child(&mut self, node: &KdlNode, ctx: Ctx, slot: Option<&mut MaskSlot>) -> R<Option<Item>> {
         let span = node.name().span();
         match node.name().value() {
-            "path" => self.path(node).map(|p| Some(Item::Path(p))),
+            "path" | "loop" => self.path(node).map(|p| Some(Item::Path(p))),
             "group" => self.group(node).map(|g| Some(Item::Group(g))),
             "use" if ctx != Ctx::Defs => self.use_(node).map(Some),
             "use" => Err(self.err(
@@ -438,10 +439,10 @@ impl Parser {
                     .label("inside `defs`")
                     .help("to define a copy, wrap it in a group with an `id`: `group id=\"…\" { use \"…\" }`"),
             )),
-            "mask" => match slot {
+            name @ ("mask" | "unmask") => match slot {
                 Some(s) => self.mask_child(node, s).map(|()| None),
                 None => Err(self.err(
-                    Diag::error(span, "`mask` must be inside a `path`, `group` or `use`")
+                    Diag::error(span, format!("`{name}` must be inside a `path`, `loop`, `group` or `use`"))
                         .label("not inside an element"),
                 )),
             },
@@ -475,9 +476,9 @@ impl Parser {
         let span = node.name().span();
         if let Some(first) = slot.first {
             return Err(self.err(
-                Diag::error(span, "an element can have only one `mask`")
-                    .label("second `mask`")
-                    .also(first, "first `mask` here")
+                Diag::error(span, "an element can have only one `mask` or `unmask`")
+                    .label("second mask")
+                    .also(first, "first mask here")
                     .help("put all shapes in one `mask`, or put a `mask` inside the `mask` to intersect them"),
             ));
         }
@@ -569,13 +570,13 @@ impl Parser {
     }
 
     fn path(&mut self, node: &KdlNode) -> R<PathId> {
-        self.check_entries(node, 0, 0, &["closed", "id"])?;
+        self.check_entries(node, 0, 0, &["id"])?;
         self.element(node, |p, id| p.path_body(node, id), Target::Path)
     }
 
     fn path_body(&mut self, node: &KdlNode, id: Option<String>) -> R<PathId> {
         let span = node.name().span();
-        let closed = self.flag(node, "closed")?;
+        let closed = node.name().value() == "loop";
         let mut points = Vec::new();
         let mut cusps = Vec::new();
         let mut end_cusps = Vec::new();
@@ -584,7 +585,7 @@ impl Parser {
         let mut ok = true;
         for child in node.children().map(|d| d.nodes()).unwrap_or_default() {
             match child.name().value() {
-                "point" => match self.point(child) {
+                "node" | "cusp" => match self.point(child) {
                     Ok((p, cusp)) => {
                         points.push(p);
                         cusps.push(cusp.is_some());
@@ -597,13 +598,13 @@ impl Parser {
                     Ok(None) => {}
                     Err(Failed) => ok = false,
                 },
-                "mask" => {
+                "mask" | "unmask" => {
                     if self.mask_child(child, &mut slot).is_err() {
                         ok = false;
                     }
                 }
                 _ => {
-                    self.err(unknown_node(child, &["point", "gradient", "mask"]));
+                    self.err(unknown_node(child, &["node", "cusp", "gradient", "mask", "unmask"]));
                     ok = false;
                 }
             }
@@ -613,7 +614,7 @@ impl Parser {
         }
         if points.len() < 2 {
             return Err(self.err(
-                Diag::error(span, "a path needs at least 2 points")
+                Diag::error(span, "a path needs at least 2 nodes")
                     .label(format!("has {}", points.len())),
             ));
         }
@@ -621,8 +622,8 @@ impl Parser {
             let ends = [end_cusps.first(), end_cusps.last()];
             for span in ends.into_iter().flatten().flatten() {
                 self.diags.push(
-                    Diag::warning(*span, "`cusp` on an end point of an open path does nothing")
-                        .label("end point"),
+                    Diag::warning(*span, "a `cusp` at the end of an open path does nothing")
+                        .label("end node"),
                 );
             }
         }
@@ -644,7 +645,7 @@ impl Parser {
             self.diags.push(
                 Diag::warning(
                     span,
-                    "all points of this path are the same; it paints nothing",
+                    "all nodes of this path are the same; it paints nothing",
                 )
                 .label("degenerate"),
             );
@@ -657,7 +658,7 @@ impl Parser {
                 depth: mi.depth,
             };
         }
-        self.check_limits(info, span, "path")?;
+        self.check_limits(info, span, node.name().value())?;
         self.paths.push(def);
         self.path_info.push(info);
         Ok(self.paths.len() as u32 - 1)
@@ -692,9 +693,9 @@ impl Parser {
     }
 
     fn mask(&mut self, node: &KdlNode) -> R<MaskId> {
-        self.check_entries(node, 0, 0, &["invert"])?;
+        self.check_entries(node, 0, 0, &[])?;
         let span = node.name().span();
-        let invert = self.flag(node, "invert")?;
+        let invert = node.name().value() == "unmask";
         self.enter(span)?;
         let mut slot = MaskSlot::default();
         let items = self.children(node.children(), Ctx::Mask, Some(&mut slot));
@@ -702,14 +703,14 @@ impl Parser {
         let items = items?;
         if items.is_empty() {
             let msg = if invert {
-                "this inverted mask is empty, so it has no effect"
+                "this `unmask` is empty, so it has no effect"
             } else {
                 "this mask is empty, so it hides its element completely"
             };
             self.diags.push(Diag::warning(span, msg).label("empty"));
         }
         let info = self.list_info(&items, slot.id);
-        self.check_limits(info, span, "mask")?;
+        self.check_limits(info, span, node.name().value())?;
         self.masks.push(Mask {
             invert,
             items,
@@ -727,10 +728,10 @@ impl Parser {
         let mut slot = MaskSlot::default();
         let mut ok = true;
         for child in node.children().map(|d| d.nodes()).unwrap_or_default() {
-            let r = if child.name().value() == "mask" {
+            let r = if matches!(child.name().value(), "mask" | "unmask") {
                 self.mask_child(child, &mut slot)
             } else {
-                Err(self.err(unknown_node(child, &["mask"])))
+                Err(self.err(unknown_node(child, &["mask", "unmask"])))
             };
             if r.is_err() {
                 ok = false;
@@ -797,7 +798,7 @@ impl Parser {
             .map(|(_, k)| format!("\"{k}\""))
             .collect();
         let help = match close.len() {
-            0 => "give a `path` or `group` this `id` before the `use`".to_string(),
+            0 => "give a `path`, `loop` or `group` this `id` before the `use`".to_string(),
             1 => format!("did you mean {}?", close[0]),
             _ => format!("did you mean one of: {}?", close.join(", ")),
         };
@@ -891,29 +892,17 @@ impl Parser {
         }
     }
 
-    /// A point, and the span of its `cusp` property if that is `#true`.
+    /// A `node` or `cusp`, and for a `cusp` the span of its name.
     fn point(&mut self, node: &KdlNode) -> R<([f64; 2], Option<SourceSpan>)> {
         self.no_children(node)?;
-        let args = self.check_entries(node, 2, 2, &["cusp"])?;
+        let args = self.check_entries(node, 2, 2, &[])?;
         let p = [self.number(args[0], "x")?, self.number(args[1], "y")?];
-        let cusp = self.flag(node, "cusp")?;
-        Ok((p, cusp.then(|| node.entry("cusp").unwrap().span())))
-    }
-
-    /// A boolean property, `false` if absent.
-    fn flag(&mut self, node: &KdlNode, name: &str) -> R<bool> {
-        match node.entry(name).map(|e| (e, e.value())) {
-            None => Ok(false),
-            Some((_, KdlValue::Bool(b))) => Ok(*b),
-            Some((e, _)) => Err(self.err(
-                Diag::error(e.span(), format!("`{name}` must be `#true` or `#false`"))
-                    .label("here"),
-            )),
-        }
+        let cusp = node.name().value() == "cusp";
+        Ok((p, cusp.then(|| node.name().span())))
     }
 
     fn gradient(&mut self, node: &KdlNode, closed: bool) -> R<Option<Gradient>> {
-        let args = self.check_entries(node, 1, 1, &["easing"])?;
+        let args = self.check_entries(node, 1, 1, &["ease"])?;
         let t = self.number(args[0], "t")?;
         // Keep going after a bad easing so the stops are checked too.
         let easing = self.easing(node);
@@ -961,7 +950,7 @@ impl Parser {
                 self.diags.push(
                     Diag::warning(
                         span,
-                        "gradient ignored: on a closed path, `t` must be in [1, 2) or [3, 4)",
+                        "gradient ignored: on a `loop`, `t` must be in [1, 2) or [3, 4)",
                     )
                     .label("outside both sides"),
                 );
@@ -979,21 +968,21 @@ impl Parser {
         }))
     }
 
-    /// The optional `easing="…"` property of a `gradient` or `stop`.
+    /// The optional `ease="…"` property of a `gradient` or `stop`.
     fn easing(&mut self, node: &KdlNode) -> R<Easing> {
-        let Some(e) = node.entry("easing") else {
+        let Some(e) = node.entry("ease") else {
             return Ok(Easing::Linear);
         };
         match e.value() {
             KdlValue::String(s) => Easing::parse(s).map_err(|msg| {
                 self.err(
-                    Diag::error(e.span(), format!("bad `easing`: {msg}"))
+                    Diag::error(e.span(), format!("bad `ease`: {msg}"))
                         .label("here")
                         .help(format!("expected one of: {EASING_NAMES}")),
                 )
             }),
             _ => Err(self.err(
-                Diag::error(e.span(), "`easing` must be a string")
+                Diag::error(e.span(), "`ease` must be a string")
                     .label("not a string")
                     .help(format!("expected one of: {EASING_NAMES}")),
             )),
@@ -1002,7 +991,7 @@ impl Parser {
 
     fn stop(&mut self, node: &KdlNode) -> R<Stop> {
         self.no_children(node)?;
-        let args = self.check_entries(node, 4, 5, &["easing", "target"])?;
+        let args = self.check_entries(node, 4, 5, &["ease", "target"])?;
         // Check every value before failing, so that all errors show at once.
         let check = |me: &mut Self, e: &KdlEntry, what: &str, ok: fn(f64) -> bool, msg: &str| {
             let v = me.number(e, what)?;
@@ -1170,13 +1159,13 @@ impl Parser {
 fn collect_ids(doc: &KdlDocument, out: &mut HashMap<String, SourceSpan>) {
     for node in doc.nodes() {
         let name = node.name().value();
-        if matches!(name, "path" | "group")
+        if matches!(name, "path" | "loop" | "group")
             && let Some(e) = node.entry("id")
             && let KdlValue::String(s) = e.value()
         {
             out.entry(s.clone()).or_insert(e.span());
         }
-        if matches!(name, "path" | "group" | "mask" | "use" | "defs")
+        if matches!(name, "path" | "loop" | "group" | "mask" | "unmask" | "use" | "defs")
             && let Some(c) = node.children()
         {
             collect_ids(c, out);
@@ -1241,7 +1230,7 @@ mod tests {
     }
 
     const IMG: &str = "image width=10 height=10\n";
-    const P: &str = "path { point 0 0; point 1 1; gradient 0 { stop 0 0 0 0; } }";
+    const P: &str = "path { node 0 0; node 1 1; gradient 0 { stop 0 0 0 0; } }";
 
     fn src(body: &str) -> String {
         format!("{IMG}{}", body.replace("$P", P))
@@ -1252,9 +1241,9 @@ mod tests {
         let src = r#"
 image width=800 height=600
 path {
-    point 100 500
-    point 400 150
-    point 700 500
+    node 100 500
+    node 400 150
+    node 700 500
     gradient 1.5 {
         stop 0  0.75 0.18 40
         stop 60 0.75 0.18 40 0.0
@@ -1264,10 +1253,10 @@ path {
         stop 80 0.55 0.12 250 0.0
     }
 }
-path closed=#true {
-    point 200 200
-    point 600 200
-    point 400 450
+loop {
+    node 200 200
+    node 600 200
+    node 400 450
     gradient 1 {
         stop 0 0.95 0.02 90
     }
@@ -1286,7 +1275,7 @@ path closed=#true {
     #[test]
     fn stop_easing() {
         let s = ok(&format!(
-            "{IMG}path {{ point 0 0; point 1 1; gradient 0 {{ stop 0 0 0 0 easing=\"ease-in\"; stop 5 1 0 0 easing=\"steps(3, jump-none)\"; stop 9 1 0 0; }} }}"
+            "{IMG}path {{ node 0 0; node 1 1; gradient 0 {{ stop 0 0 0 0 ease=in; stop 5 1 0 0 ease=\"steps(3, jump-none)\"; stop 9 1 0 0; }} }}"
         ));
         let st = &s.paths[0].gradients[0].stops;
         assert_eq!(st[0].easing, Easing::EASE_IN);
@@ -1304,7 +1293,7 @@ path closed=#true {
     #[test]
     fn stop_target() {
         let s = ok(&format!(
-            "{IMG}path {{ point 0 0; point 1 1; gradient 0 {{ stop 0 0 0 0 target=2; stop 5 1 0 0; }} }}"
+            "{IMG}path {{ node 0 0; node 1 1; gradient 0 {{ stop 0 0 0 0 target=2; stop 5 1 0 0; }} }}"
         ));
         let st = &s.paths[0].gradients[0].stops;
         assert_eq!(st[0].target, Some(2));
@@ -1314,7 +1303,7 @@ path closed=#true {
     #[test]
     fn gradient_easing() {
         let s = ok(&format!(
-            "{IMG}path {{ point 0 0; point 1 1; gradient 0 easing=\"ease-out\" {{ stop 0 0 0 0; }}; gradient 2 {{ stop 0 0 0 0; }} }}"
+            "{IMG}path {{ node 0 0; node 1 1; gradient 0 ease=out {{ stop 0 0 0 0; }}; gradient 2 {{ stop 0 0 0 0; }} }}"
         ));
         let g = &s.paths[0].gradients;
         assert_eq!(g[0].easing, Easing::EASE_OUT);
@@ -1325,7 +1314,7 @@ path closed=#true {
     fn errors_are_reported() {
         assert_eq!(
             errors("path { }"),
-            ["`path` before `image`", "a path needs at least 2 points"]
+            ["`path` before `image`", "a path needs at least 2 nodes"]
         );
         assert_eq!(
             errors("image width=0 height=5"),
@@ -1341,19 +1330,19 @@ path closed=#true {
         );
         assert_eq!(
             errors(
-                "image width=5 height=5\npath { point 0 0; point 1 1; gradient 4 { stop 0 0 0 0 } }"
+                "image width=5 height=5\npath { node 0 0; node 1 1; gradient 4 { stop 0 0 0 0 } }"
             ),
             ["on an open path, `t` must be in [0, 4)"]
         );
         assert_eq!(
             errors(
-                "image width=5 height=5\npath { point 0 0; point 1 1; gradient 1 { stop 2 0 0 0; stop 1 0 0 0 } }"
+                "image width=5 height=5\npath { node 0 0; node 1 1; gradient 1 { stop 2 0 0 0; stop 1 0 0 0 } }"
             ),
             ["stop distances must not decrease"]
         );
         assert_eq!(
             errors(
-                "image width=5 height=5\npath { point 0 0; point 1 1; gradient 1 { stop 0 0 0 0 target=-1; stop 1 0 0 0 target=1.5 } }"
+                "image width=5 height=5\npath { node 0 0; node 1 1; gradient 1 { stop 0 0 0 0 target=-1; stop 1 0 0 0 target=1.5 } }"
             ),
             [
                 "`target` must be a whole number, 0 or more",
@@ -1362,42 +1351,42 @@ path closed=#true {
         );
         assert_eq!(
             errors(
-                "image width=5 height=5\npath { point 0 0; point 1 1; gradient 1 { stop 0 1.5 0 0 2 } }"
+                "image width=5 height=5\npath { node 0 0; node 1 1; gradient 1 { stop 0 1.5 0 0 2 } }"
             ),
             ["`L` must be from 0 to 1", "`alpha` must be from 0 to 1"]
         );
         assert_eq!(
             errors(
-                "image width=5 height=5\npath { point 0 0; point 1 1; gradient 1 { stop 0 0 0 0 easing=\"bounce\" } }"
+                "image width=5 height=5\npath { node 0 0; node 1 1; gradient 1 { stop 0 0 0 0 ease=\"bounce\" } }"
             ),
-            ["bad `easing`: unknown easing function `bounce`"]
+            ["bad `ease`: unknown easing function `bounce`"]
         );
         assert_eq!(
             errors(
-                "image width=5 height=5\npath { point 0 0; point 1 1; gradient 1 { stop 0 0 0 0 easing=1 } }"
+                "image width=5 height=5\npath { node 0 0; node 1 1; gradient 1 { stop 0 0 0 0 ease=1 } }"
             ),
-            ["`easing` must be a string"]
+            ["`ease` must be a string"]
         );
         assert_eq!(
             errors(
-                "image width=5 height=5\npath { point 0 0; point 1 1; gradient 1 easing=\"bounce\" { stop 0 0 0 0 } }"
+                "image width=5 height=5\npath { node 0 0; node 1 1; gradient 1 ease=\"bounce\" { stop 0 0 0 0 } }"
             ),
-            ["bad `easing`: unknown easing function `bounce`"]
+            ["bad `ease`: unknown easing function `bounce`"]
         );
         // A bad easing does not hide other errors in the same gradient or stop.
         assert_eq!(
             errors(
-                "image width=5 height=5\npath { point 0 0; point 1 1; gradient 1 easing=\"bouncy\" { stop 0 2 0 0; stop -1 0 0 0 } }"
+                "image width=5 height=5\npath { node 0 0; node 1 1; gradient 1 ease=\"bouncy\" { stop 0 2 0 0; stop -1 0 0 0 } }"
             ),
             [
-                "bad `easing`: unknown easing function `bouncy`",
+                "bad `ease`: unknown easing function `bouncy`",
                 "`L` must be from 0 to 1",
                 "`distance` must be 0 or more",
             ]
         );
         assert_eq!(
             errors(
-                "image width=5 height=5\npath { point 0 0; point 1 1; gradient 1 { stop -1 1.5 -1 \"x\" 2 easing=\"bounce\" } }"
+                "image width=5 height=5\npath { node 0 0; node 1 1; gradient 1 { stop -1 1.5 -1 \"x\" 2 ease=\"bounce\" } }"
             ),
             [
                 "`distance` must be 0 or more",
@@ -1405,26 +1394,26 @@ path closed=#true {
                 "`C` must be 0 or more",
                 "`H` must be a number",
                 "`alpha` must be from 0 to 1",
-                "bad `easing`: unknown easing function `bounce`",
+                "bad `ease`: unknown easing function `bounce`",
             ]
         );
         assert_eq!(
-            errors("image width=5 height=5\npath { point 0; point 1 1 }"),
-            ["`point` needs 2 argument(s)"]
+            errors("image width=5 height=5\npath { node 0; node 1 1 }"),
+            ["`node` needs 2 argument(s)"]
         );
         assert_eq!(
-            errors("image width=5 height=5\npath { point 0 0 1; point 1 1 }"),
-            ["too many arguments for `point`"]
+            errors("image width=5 height=5\npath { node 0 0 1; node 1 1 }"),
+            ["too many arguments for `node`"]
         );
         assert_eq!(
-            errors("image width=5 height=5\npath { point 0 0; point 1 1; gradient 1 }"),
+            errors("image width=5 height=5\npath { node 0 0; node 1 1; gradient 1 }"),
             ["a gradient needs at least one stop"]
         );
     }
 
     #[test]
     fn closed_gradients_outside_sides_warn() {
-        let p = parse("image width=5 height=5\npath closed=#true { point 0 0; point 1 1; gradient 2.5 { stop 0 0 0 0 } }").unwrap();
+        let p = parse("image width=5 height=5\nloop { node 0 0; node 1 1; gradient 2.5 { stop 0 0 0 0 } }").unwrap();
         let msgs: Vec<_> = p
             .diagnostics
             .iter()
@@ -1438,7 +1427,7 @@ path closed=#true {
     #[test]
     fn cusps() {
         let s = ok(&src(
-            "path closed=#true { point 0 0 cusp=#true; point 5 0; point 5 5 cusp=#false; point 0 0; gradient 1 { stop 0 0 0 0 } }",
+            "loop { cusp 0 0; node 5 0; node 5 5; node 0 0; gradient 1 { stop 0 0 0 0 } }",
         ));
         assert_eq!(s.paths[0].cusps, [true, false, false, false]);
         // The repeated last point folds into the first, and so does its flag.
@@ -1447,31 +1436,31 @@ path closed=#true {
         assert_eq!(cusps, [true, false, false]);
         assert_eq!(
             warnings(&src(
-                "path { point 0 0 cusp=#true; point 1 1 cusp=#true; point 2 0 cusp=#true; gradient 0 { stop 0 0 0 0 } }"
+                "path { cusp 0 0; cusp 1 1; cusp 2 0; gradient 0 { stop 0 0 0 0 } }"
             )),
             [
-                "`cusp` on an end point of an open path does nothing",
-                "`cusp` on an end point of an open path does nothing",
+                "a `cusp` at the end of an open path does nothing",
+                "a `cusp` at the end of an open path does nothing",
             ]
         );
         assert_eq!(
-            errors(&src("path { point 0 0 cusp=1; point 1 1 }")),
-            ["`cusp` must be `#true` or `#false`"]
+            errors(&src("path { node 0 0 cusp=#true; node 1 1 }")),
+            ["unknown property `cusp`"]
         );
     }
 
     #[test]
     fn degenerate_paths_warn_in_file_order() {
         let w = warnings(&src(
-            "path { point 1 1; point 1 1; gradient 0 { stop 0 0 0 0; } }\npath { point 0 0; point 1 1 }\n\
-             path closed=#true { point 2 2; point 2 2; point 2 2; gradient 1 { stop 0 0 0 0; } }",
+            "path { node 1 1; node 1 1; gradient 0 { stop 0 0 0 0; } }\npath { node 0 0; node 1 1 }\n\
+             loop { node 2 2; node 2 2; node 2 2; gradient 1 { stop 0 0 0 0; } }",
         ));
         assert_eq!(
             w,
             [
-                "all points of this path are the same; it paints nothing",
+                "all nodes of this path are the same; it paints nothing",
                 "this path has no usable gradients and paints nothing",
-                "all points of this path are the same; it paints nothing",
+                "all nodes of this path are the same; it paints nothing",
             ]
         );
     }
@@ -1503,8 +1492,8 @@ path closed=#true {
             ["`defs` must be at the top level"]
         );
         assert_eq!(
-            errors(&src("group { point 1 1 }")),
-            ["unknown node `point`"]
+            errors(&src("group { node 1 1 }")),
+            ["unknown node `node`"]
         );
         assert_eq!(
             errors(&format!("{P}\n{IMG}")),
@@ -1515,7 +1504,7 @@ path closed=#true {
     #[test]
     fn masks() {
         let s = ok(&src(
-            "group { mask { $P }; $P }\npath { mask invert=#true { $P; group { $P } }; point 0 0; point 1 1; gradient 0 { stop 0 0 0 0; } }",
+            "group { mask { $P }; $P }\npath { unmask { $P; group { $P } }; node 0 0; node 1 1; gradient 0 { stop 0 0 0 0; } }",
         ));
         assert_eq!(s.masks.len(), 2);
         assert!(!s.masks[0].invert && s.masks[1].invert);
@@ -1534,34 +1523,34 @@ path closed=#true {
             .filter(|d| d.severity == Severity::Error)
             .collect();
         assert_eq!(e.len(), 1);
-        assert_eq!(e[0].message, "an element can have only one `mask`");
+        assert_eq!(e[0].message, "an element can have only one `mask` or `unmask`");
         assert_eq!(e[0].secondary.len(), 1);
         assert_eq!(e[0].labels().unwrap().count(), 2);
         assert_eq!(
             errors(&src("mask { $P }")),
-            ["`mask` must be inside a `path`, `group` or `use`"]
+            ["`mask` must be inside a `path`, `loop`, `group` or `use`"]
         );
         assert_eq!(
-            errors(&src("group { mask invert=1 { $P }; $P }")),
-            ["`invert` must be `#true` or `#false`"]
+            errors(&src("group { mask invert=#true { $P }; $P }")),
+            ["unknown property `invert`"]
         );
         assert_eq!(
             warnings(&src("group { mask { }; $P }")),
             ["this mask is empty, so it hides its element completely"]
         );
         assert_eq!(
-            warnings(&src("group { mask invert=#true { }; $P }")),
-            ["this inverted mask is empty, so it has no effect"]
+            warnings(&src("group { unmask { }; $P }")),
+            ["this `unmask` is empty, so it has no effect"]
         );
     }
 
     #[test]
     fn reuse() {
         let s = ok(&src(
-            r#"defs { path id="a" { point 0 0; point 1 1; gradient 0 { stop 0 0 0 0; } } }
-group id="g" { mask { use "a"; }; path id="b" { point 0 0; point 2 2; gradient 0 { stop 0 0 0 0; } } }
+            r#"defs { path id="a" { node 0 0; node 1 1; gradient 0 { stop 0 0 0 0; } } }
+group id="g" { mask { use "a"; }; path id="b" { node 0 0; node 2 2; gradient 0 { stop 0 0 0 0; } } }
 use "a"
-use "g" { mask invert=#true { use "b"; } }
+use "g" { unmask { use "b"; } }
 group { use "b"; mask { group id="deep" { use "a"; } } }
 use "deep""#,
         ));
@@ -1615,18 +1604,18 @@ use "deep""#,
                 .find(|d| d.severity == Severity::Error)
                 .unwrap()
         };
-        let d = first(&src(r#"path id="a" { point 0 0; point 1 1 }
+        let d = first(&src(r#"path id="a" { node 0 0; node 1 1 }
 group id="a" { $P }"#));
         assert_eq!(d.message, "the `id` \"a\" is already taken");
         assert_eq!(d.secondary.len(), 1);
         assert!(d.secondary[0].0.offset() < d.span.offset());
 
-        let d = first(&src(r#"defs { path id="circle" { point 0 0; point 1 1 } }
+        let d = first(&src(r#"defs { path id="circle" { node 0 0; node 1 1 } }
 use "cirle""#));
         assert_eq!(d.message, "no element has the `id` \"cirle\"");
         assert_eq!(d.help.as_deref(), Some("did you mean \"circle\"?"));
         let d = first(&src(
-            r#"defs { path id="ring" { point 0 0; point 1 1 }; path id="rang" { point 0 0; point 1 1 } }
+            r#"defs { path id="ring" { node 0 0; node 1 1 }; path id="rang" { node 0 0; node 1 1 } }
 use "rnig""#,
         ));
         assert_eq!(
@@ -1636,11 +1625,11 @@ use "rnig""#,
         let d = first(&src(r#"use "zzz""#));
         assert_eq!(
             d.help.as_deref(),
-            Some("give a `path` or `group` this `id` before the `use`")
+            Some("give a `path`, `loop` or `group` this `id` before the `use`")
         );
 
         let d = first(&src(r#"use "later"
-path id="later" { point 0 0; point 1 1 }"#));
+path id="later" { node 0 0; node 1 1 }"#));
         assert_eq!(d.message, "\"later\" is defined later");
         assert!(d.secondary[0].0.offset() > d.span.offset());
 
@@ -1650,13 +1639,13 @@ path id="later" { point 0 0; point 1 1 }"#));
         );
         assert_eq!(
             errors(&src(
-                r#"path id="me" { mask { use "me"; }; point 0 0; point 1 1 }"#
+                r#"path id="me" { mask { use "me"; }; node 0 0; node 1 1 }"#
             )),
             ["\"me\" cannot be used inside itself"]
         );
         assert_eq!(
             errors(&src(
-                r#"defs { path id="a" { point 0 0; point 1 1 }; use "a" }"#
+                r#"defs { path id="a" { node 0 0; node 1 1 }; use "a" }"#
             )),
             ["`use` is not allowed inside `defs`"]
         );
@@ -1666,26 +1655,26 @@ path id="later" { point 0 0; point 1 1 }"#));
         );
         assert_eq!(
             errors(&src(r#"defs { mask { } }"#)),
-            ["`mask` must be inside a `path`, `group` or `use`"]
+            ["`mask` must be inside a `path`, `loop`, `group` or `use`"]
         );
         assert_eq!(
             errors(&src(r#"use 3"#)),
             ["`use` takes the `id` to draw, as a string"]
         );
         assert_eq!(
-            errors(&src(r#"path id=3 { point 0 0; point 1 1 }"#)),
+            errors(&src(r#"path id=3 { node 0 0; node 1 1 }"#)),
             ["`id` must be a string"]
         );
         // An element with errors is not reported again where it is used.
         assert_eq!(
-            errors(&src(r#"path id="bad" { point 0 0 }
+            errors(&src(r#"path id="bad" { node 0 0 }
 use "bad""#)),
-            ["a path needs at least 2 points"]
+            ["a path needs at least 2 nodes"]
         );
         // Unused definitions.
         assert_eq!(
             warnings(&src(
-                r#"defs { path id="a" { point 0 0; point 1 1; gradient 0 { stop 0 0 0 0; } }; group { $P } }"#
+                r#"defs { path id="a" { node 0 0; node 1 1; gradient 0 { stop 0 0 0 0; } }; group { $P } }"#
             )),
             [
                 "this definition is never used",
@@ -1697,7 +1686,7 @@ use "bad""#)),
     /// `n` definitions, each using the previous one twice.
     fn doubling(n: usize) -> String {
         let mut s =
-            src(r#"defs { path id="g0" { point 0 0; point 1 1; gradient 0 { stop 0 0 0 0; } }"#);
+            src(r#"defs { path id="g0" { node 0 0; node 1 1; gradient 0 { stop 0 0 0 0; } }"#);
         for i in 1..=n {
             s += &format!(
                 "\ngroup id=\"g{i}\" {{ use \"g{}\"; use \"g{}\" }}",
@@ -1749,7 +1738,7 @@ use "bad""#)),
             .unwrap();
         assert_eq!(e, ["nested more than 64 levels deep"]);
         let mut s =
-            src(r#"defs { path id="d0" { point 0 0; point 1 1; gradient 0 { stop 0 0 0 0; } }"#);
+            src(r#"defs { path id="d0" { node 0 0; node 1 1; gradient 0 { stop 0 0 0 0; } }"#);
         for i in 1..40 {
             s += &format!("\ngroup id=\"d{i}\" {{ use \"d{}\" }}", i - 1);
         }
@@ -1775,7 +1764,7 @@ use "bad""#)),
     #[test]
     fn diagnostics_are_sorted() {
         let p = parse(&src(r#"defs { group { $P } }
-path { point 0 0; point 1 1 }"#))
+path { node 0 0; node 1 1 }"#))
         .unwrap();
         let offs: Vec<_> = p.diagnostics.iter().map(|d| d.span.offset()).collect();
         assert_eq!(offs.len(), 2);

@@ -67,8 +67,9 @@ impl Easing {
         }
     }
 
-    /// Parses a CSS easing function, such as `ease-in` or
-    /// `cubic-bezier(0.4, 0, 0.2, 1)`.
+    /// Parses an `ease` value: `no` (CSS `linear`), `yes`, `in`, `out` or
+    /// `in-out` (CSS `ease`, `ease-in`, `ease-out`, `ease-in-out`), or a CSS
+    /// easing function such as `cubic-bezier(0.4, 0, 0.2, 1)`.
     pub fn parse(s: &str) -> Result<Easing, String> {
         let s = s.trim();
         let (name, args) = match s.find('(') {
@@ -81,11 +82,11 @@ impl Easing {
             }
         };
         match (name, args) {
-            ("linear", None) => Ok(Easing::Linear),
-            ("ease", None) => Ok(Easing::EASE),
-            ("ease-in", None) => Ok(Easing::EASE_IN),
-            ("ease-out", None) => Ok(Easing::EASE_OUT),
-            ("ease-in-out", None) => Ok(Easing::EASE_IN_OUT),
+            ("no", None) => Ok(Easing::Linear),
+            ("yes", None) => Ok(Easing::EASE),
+            ("in", None) => Ok(Easing::EASE_IN),
+            ("out", None) => Ok(Easing::EASE_OUT),
+            ("in-out", None) => Ok(Easing::EASE_IN_OUT),
             ("step-start", None) => Ok(Easing::Steps {
                 n: 1,
                 pos: StepPosition::Start,
@@ -148,7 +149,7 @@ impl Easing {
 impl fmt::Display for Easing {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
-            Easing::Linear => f.write_str("linear"),
+            Easing::Linear => f.write_str("no"),
             Easing::CubicBezier { x1, y1, x2, y2 } => {
                 write!(f, "cubic-bezier({x1}, {y1}, {x2}, {y2})")
             }
@@ -237,7 +238,7 @@ impl Curve {
 }
 
 /// The names accepted by [`Easing::parse`], for help messages.
-pub const EASING_NAMES: &str = "linear, ease, ease-in, ease-out, ease-in-out, \
+pub const EASING_NAMES: &str = "no, yes, in, out, in-out, \
      cubic-bezier(x1, y1, x2, y2), steps(n[, position]), step-start, step-end";
 
 /// CSS step easing (without the "before flag", which has no meaning here).
@@ -320,11 +321,12 @@ mod tests {
 
     #[test]
     fn keywords() {
-        assert_eq!(Easing::parse("linear"), Ok(Easing::Linear));
-        assert_eq!(Easing::parse(" ease-in "), Ok(Easing::EASE_IN));
-        assert_eq!(Easing::parse("ease-out"), Ok(Easing::EASE_OUT));
-        assert_eq!(Easing::parse("ease-in-out"), Ok(Easing::EASE_IN_OUT));
-        assert_eq!(Easing::parse("ease"), Ok(Easing::EASE));
+        assert_eq!(Easing::parse("no"), Ok(Easing::Linear));
+        assert!(Easing::parse("linear").is_err());
+        assert_eq!(Easing::parse(" in "), Ok(Easing::EASE_IN));
+        assert_eq!(Easing::parse("out"), Ok(Easing::EASE_OUT));
+        assert_eq!(Easing::parse("in-out"), Ok(Easing::EASE_IN_OUT));
+        assert_eq!(Easing::parse("yes"), Ok(Easing::EASE));
         assert!(Easing::parse("bounce").is_err());
         assert!(Easing::parse("linear(0, 1)").is_err());
     }
@@ -385,10 +387,10 @@ mod tests {
                 .fold(0.0f32, f32::max)
         };
         for s in [
-            "ease",
-            "ease-in",
-            "ease-out",
-            "ease-in-out",
+            "yes",
+            "in",
+            "out",
+            "in-out",
             // Clamped overshoot.
             "cubic-bezier(0.3, -1, 0.7, 2)",
             // Vertical tangents: y ~ cbrt(x) at the start, and in the middle.
@@ -397,7 +399,7 @@ mod tests {
         ] {
             assert!(max_err(s) < 2.0 * TABLE_TOLERANCE, "{s}: {}", max_err(s));
         }
-        for s in ["linear", "steps(4)", "steps(3, jump-both)"] {
+        for s in ["no", "steps(4)", "steps(3, jump-both)"] {
             assert_eq!(max_err(s), 0.0, "{s}");
         }
     }

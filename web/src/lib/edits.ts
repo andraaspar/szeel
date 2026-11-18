@@ -21,13 +21,9 @@ export function movePoint(p: PointInfo, x: number, y: number, decimals = 0): Cha
   ]
 }
 
-/** Makes a point a cusp, or a cusp a smooth point again. */
-export function toggleCusp(text: string, p: PointInfo): Change {
-  if (!p.cr) return { from: p.yr[1], to: p.yr[1], insert: ' cusp=#true' }
-  if (!p.cusp) return { from: p.cr[0], to: p.cr[1], insert: 'cusp=#true' }
-  let from = p.cr[0]
-  while (from > p.yr[1] && /[ \t]/.test(text[from - 1])) from--
-  return { from, to: p.cr[1], insert: '' }
+/** Turns a `node` into a `cusp`, or a `cusp` back into a smooth `node`. */
+export function toggleCusp(p: PointInfo): Change {
+  return { from: p.nr[0], to: p.nr[1], insert: p.cusp ? 'node' : 'cusp' }
 }
 
 function lineStart(text: string, i: number): number {
@@ -48,7 +44,7 @@ function trimmedEnd(text: string, [from, to]: [number, number]): number {
 
 /** Inserts a point after point `after` of `path` (or before the first if -1). */
 export function insertPoint(text: string, path: PathInfo, after: number, x: number, y: number): Change {
-  const node = `point ${fmt(x)} ${fmt(y)}`
+  const node = `node ${fmt(x)} ${fmt(y)}`
   const anchor = path.points[Math.max(after, 0)]
   if (after < 0) {
     const ls = lineStart(text, anchor.node[0])
@@ -67,7 +63,7 @@ export function insertPoint(text: string, path: PathInfo, after: number, x: numb
   return { from: e, to: e, insert: `; ${node}` }
 }
 
-/** Removes a point node, and its line if it stands alone on it. */
+/** Removes a `node` or `cusp`, and its line if it stands alone on it. */
 export function deletePoint(text: string, p: PointInfo): Change {
   const e = trimmedEnd(text, p.node)
   const ls = lineStart(text, p.node[0])
@@ -89,9 +85,9 @@ export function newPath(text: string, cx: number, cy: number, size: number): Cha
   const hue = Math.floor(Math.random() * 360)
   const insert =
     `\npath {\n` +
-    `    point ${fmt(cx - r)} ${fmt(cy)}\n` +
-    `    point ${fmt(cx)} ${fmt(cy - r / 2)}\n` +
-    `    point ${fmt(cx + r)} ${fmt(cy)}\n` +
+    `    node ${fmt(cx - r)} ${fmt(cy)}\n` +
+    `    node ${fmt(cx)} ${fmt(cy - r / 2)}\n` +
+    `    node ${fmt(cx + r)} ${fmt(cy)}\n` +
     `    gradient 1.5 {\n` +
     `        stop 0 0.7 0.17 ${hue}\n` +
     `        stop ${Math.round(r / 5)} 0.7 0.17 ${hue} 0\n` +

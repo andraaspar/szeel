@@ -26,11 +26,11 @@
   const BLANK = `image width=800 height=600
 
 // Background: a closed loop, light inside, dark outside.
-path closed=#true {
-    point 100 100
-    point 700 100
-    point 700 500
-    point 100 500
+loop {
+    node 100 100
+    node 700 100
+    node 700 500
+    node 100 500
     gradient 1 {
         stop 0 0.3 0.05 260
         stop 400 0.15 0.03 280
@@ -188,7 +188,7 @@ path closed=#true {
     }
     if (!current()) return
     const path = analysis.paths[pi]
-    if (j >= 0) editor.select(path.points[j].node[0], path.points[j].node[0] + 5)
+    if (j >= 0) editor.select(path.points[j].nr[0], path.points[j].nr[1])
     else editor.select(path.name[0], path.name[1])
     activePath = pi
     activePoint = j
@@ -221,22 +221,22 @@ path closed=#true {
     if (!current()) return
     const p = analysis.paths[activePath]?.points[activePoint]
     if (!p) return
-    editor.apply(movePoint(p, p.x + dx, p.y + dy, decimalsOf(p)), p.node[0], p.node[0] + 5)
+    editor.apply(movePoint(p, p.x + dx, p.y + dy, decimalsOf(p)), p.nr[0], p.nr[1])
   }
 
   function onInsert(pi: number, after: number, x: number, y: number) {
     if (!current()) return
     const change = insertPoint(text, analysis.paths[pi], after, Math.round(x), Math.round(y))
     editor.apply([change])
-    const at = change.from + change.insert.indexOf('point')
-    editor.select(at, at + 5)
+    const at = change.from + change.insert.indexOf('node')
+    editor.select(at, at + 4)
   }
 
   function onDelete(pi: number, j: number) {
     if (!current()) return
     const path = analysis.paths[pi]
     if (path.points.length <= 2) {
-      flash('A path needs at least 2 points')
+      flash('A path needs at least 2 nodes')
       return
     }
     editor.apply([deletePoint(text, path.points[j])])
@@ -247,7 +247,7 @@ path closed=#true {
     if (!current()) return
     const p = analysis.paths[pi]?.points[j]
     if (!p) return
-    editor.apply([toggleCusp(text, p)], p.node[0], p.node[0] + 5)
+    editor.apply([toggleCusp(p)], p.node[0], p.node[0] + 4)
   }
 
   function addPath() {

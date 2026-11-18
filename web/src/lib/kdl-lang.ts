@@ -3,7 +3,7 @@ import type { StringStream } from '@codemirror/language'
 import { tags as t } from '@lezer/highlight'
 
 /** Node names szeel understands; anything else is shown as a plain name. */
-const KNOWN = new Set(['image', 'path', 'point', 'gradient', 'stop', 'group', 'mask', 'use', 'defs'])
+const KNOWN = new Set(['image', 'path', 'loop', 'node', 'cusp', 'gradient', 'stop', 'group', 'mask', 'unmask', 'use', 'defs'])
 
 interface State {
   /** Next identifier starts a node. */
