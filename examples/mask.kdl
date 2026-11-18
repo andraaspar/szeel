@@ -1,76 +1,21 @@
 image width=800 height=600
 
-// A group of two strokes, faded out by a soft round mask.
-group {
-    mask {
-        // Colour is ignored in masks; only alpha matters.
-        path closed=#true {
-            point 400 150
-            point 600 300
-            point 400 450
-            point 200 300
-            gradient 1 {
-                stop 0 0 0 0
-                stop 40 0 0 0 0
-            }
-            gradient 3 {
-                stop 0 0 0 0
-            }
-        }
-    }
-    path {
-        point 100 250
-        point 700 250
-        gradient 1.5 {
-            stop 0 0.75 0.18 40
-            stop 30 0.75 0.18 40 0
-        }
-    }
-    path {
-        point 100 350
-        point 700 350
-        gradient 1.5 {
-            stop 0 0.55 0.12 250
-            stop 30 0.55 0.12 250 0
-        }
-    }
-}
-
-// Intersection: a vertical band, masked by a mask that is itself masked, so
-// it only shows where both a ring and a horizontal band are.
+// A background with a hole punched by an inverted mask.
 path {
-    mask {
-        mask {
-            path {
-                point 0 520
-                point 800 520
-                gradient 0 {
-                    stop 0 0 0 0
-                    stop 50 0 0 0
-                    stop 60 0 0 0 0
-                }
-            }
-        }
-        path closed=#true {
-            point 120 420
-            point 200 500
-            point 120 580
-            point 40 500
-            gradient 1 {
+    mask invert=#true {
+        path {
+            point 380 300
+            point 420 300
+            gradient 0 {
                 stop 0 0 0 0
-                stop 25 0 0 0 0
-            }
-            gradient 3 {
-                stop 0 0 0 0
-                stop 25 0 0 0 0
+                stop 20 0 0 0 0
             }
         }
     }
-    point 120 0
-    point 120 600
+    point 0 0
+    point 1 0
     gradient 0 {
-        stop 0 0.7 0.17 150
-        stop 200 0.7 0.17 150
+        stop 0 0.95 0.02 90
     }
 }
 
@@ -113,21 +58,76 @@ group {
     }
 }
 
-// A background with a hole punched by an inverted mask.
+// Intersection: a vertical band, masked by a mask that is itself masked, so
+// it only shows where both a ring and a horizontal band are.
 path {
-    mask invert=#true {
-        path {
-            point 380 300
-            point 420 300
-            gradient 0 {
+    mask {
+        mask {
+            path {
+                point 0 520
+                point 800 520
+                gradient 0 {
+                    stop 0 0 0 0
+                    stop 50 0 0 0
+                    stop 60 0 0 0 0
+                }
+            }
+        }
+        path closed=#true {
+            point 120 420
+            point 200 500
+            point 120 580
+            point 40 500
+            gradient 1 {
                 stop 0 0 0 0
-                stop 20 0 0 0 0
+                stop 25 0 0 0 0
+            }
+            gradient 3 {
+                stop 0 0 0 0
+                stop 25 0 0 0 0
             }
         }
     }
-    point 0 0
-    point 1 0
+    point 120 0
+    point 120 600
     gradient 0 {
-        stop 0 0.95 0.02 90
+        stop 0 0.7 0.17 150
+        stop 200 0.7 0.17 150
+    }
+}
+
+// A group of two strokes, faded out by a soft round mask.
+group {
+    mask {
+        // Colour is ignored in masks; only alpha matters.
+        path closed=#true {
+            point 400 150
+            point 600 300
+            point 400 450
+            point 200 300
+            gradient 1 {
+                stop 0 0 0 0
+                stop 40 0 0 0 0
+            }
+            gradient 3 {
+                stop 0 0 0 0
+            }
+        }
+    }
+    path {
+        point 100 350
+        point 700 350
+        gradient 1.5 {
+            stop 0 0.55 0.12 250
+            stop 30 0.55 0.12 250 0
+        }
+    }
+    path {
+        point 100 250
+        point 700 250
+        gradient 1.5 {
+            stop 0 0.75 0.18 40
+            stop 30 0.75 0.18 40 0
+        }
     }
 }

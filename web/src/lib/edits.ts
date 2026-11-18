@@ -80,12 +80,11 @@ export function deletePoint(text: string, p: PointInfo): Change {
 }
 
 /**
- * Adds a new path just after the `image` line, so it is drawn in front of
+ * Adds a new path at the end of the file, so it is drawn in front of
  * everything else, centred on (cx, cy).
  */
 export function newPath(text: string, cx: number, cy: number, size: number): Change {
-  const m = /^[ \t]*image\b[^\n]*\n?/m.exec(text)
-  const at = m ? m.index + m[0].length : 0
+  const at = text.length
   const r = Math.max(10, Math.round(size / 4))
   const hue = Math.floor(Math.random() * 360)
   const insert =
@@ -98,7 +97,7 @@ export function newPath(text: string, cx: number, cy: number, size: number): Cha
     `        stop ${Math.round(r / 5)} 0.7 0.17 ${hue} 0\n` +
     `    }\n` +
     `}\n`
-  return { from: at, to: at, insert: m && !m[0].endsWith('\n') ? '\n' + insert : insert }
+  return { from: at, to: at, insert: text && !text.endsWith('\n') ? '\n' + insert : insert }
 }
 
 /** Index of the innermost path whose node contains `pos`, or -1. */

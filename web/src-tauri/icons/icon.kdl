@@ -5,6 +5,30 @@
 
 image width=1024 height=1024
 
+// The tile: a rounded square, dark inside, nothing outside.
+path closed=#true {
+    point 200 104
+    point 512 100
+    point 824 104
+    point 900 124
+    point 920 200
+    point 924 512
+    point 920 824
+    point 900 900
+    point 824 920
+    point 512 924
+    point 200 920
+    point 124 900
+    point 104 824
+    point 100 512
+    point 104 200
+    point 124 124
+    gradient 3 {
+        stop 0 0.32 0.05 250
+        stop 400 0.2 0.03 275
+    }
+}
+
 // A spiral stroke, its hue running round the left side.
 path {
     point 512 520
@@ -33,29 +57,5 @@ path {
     gradient 3.5 {
         stop 0 0.62 0.12 220
         stop 26 0.62 0.12 220 0
-    }
-}
-
-// The tile: a rounded square, dark inside, nothing outside.
-path closed=#true {
-    point 200 104
-    point 512 100
-    point 824 104
-    point 900 124
-    point 920 200
-    point 924 512
-    point 920 824
-    point 900 900
-    point 824 920
-    point 512 924
-    point 200 920
-    point 124 900
-    point 104 824
-    point 100 512
-    point 104 200
-    point 124 124
-    gradient 3 {
-        stop 0 0.32 0.05 250
-        stop 400 0.2 0.03 275
     }
 }

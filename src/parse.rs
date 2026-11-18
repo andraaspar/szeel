@@ -31,6 +31,10 @@ pub type MaskId = u32;
 /// A parsed file. Paths, groups and masks live in flat tables, in the order
 /// they are completed in the file; the tree refers to them by index, so an
 /// element used many times is stored once.
+///
+/// The file lists elements back first, like painting: each one is drawn over
+/// those before it. Lists here are front first, the order the renderer
+/// composites them in, so they are the file's lists reversed.
 #[derive(Clone, Debug)]
 pub struct Scene {
     pub width: u32,
@@ -369,6 +373,7 @@ impl Parser {
                 Err(Failed) => ok = false,
             }
         }
+        root.reverse();
         if size.is_none() && ok {
             self.err(
                 Diag::error(SourceSpan::from(0..0), "missing `image` node")
@@ -446,6 +451,7 @@ impl Parser {
         }
     }
 
+    /// Reads a list of children, returning them front first (reversed).
     fn children(
         &mut self,
         doc: Option<&KdlDocument>,
@@ -461,6 +467,7 @@ impl Parser {
                 Err(Failed) => ok = false,
             }
         }
+        items.reverse();
         if ok { Ok(items) } else { Err(Failed) }
     }
 
@@ -1269,7 +1276,8 @@ path closed=#true {
         let s = ok(src);
         assert_eq!((s.width, s.height), (800, 600));
         assert_eq!(s.paths.len(), 2);
-        assert_eq!(s.root, [Item::Path(0), Item::Path(1)]);
+        // The file is back first; the scene is front first.
+        assert_eq!(s.root, [Item::Path(1), Item::Path(0)]);
         assert!(!s.paths[0].closed && s.paths[1].closed);
         assert_eq!(s.paths[0].gradients[1].stops[1].color.a, 0.0);
         assert_eq!(s.paths[1].points[2], [400.0, 450.0]);
@@ -1475,12 +1483,13 @@ path closed=#true {
         assert_eq!(s.groups.len(), 3);
         // Groups are stored as they are completed, innermost first.
         assert_eq!(s.groups[0].items, [Item::Path(2)]);
-        assert_eq!(s.groups[1].items, [Item::Path(1), Item::Group(0)]);
+        // Lists are front first: the file's order reversed.
+        assert_eq!(s.groups[1].items, [Item::Group(0), Item::Path(1)]);
         assert_eq!(
             s.groups[2].items,
-            [Item::Path(0), Item::Group(1), Item::Path(3)]
+            [Item::Path(3), Item::Group(1), Item::Path(0)]
         );
-        assert_eq!(s.root, [Item::Group(2), Item::Path(4)]);
+        assert_eq!(s.root, [Item::Path(4), Item::Group(2)]);
         assert_eq!(
             warnings(&src("group { }")),
             ["this group is empty and paints nothing"]
@@ -1513,7 +1522,7 @@ path closed=#true {
         assert_eq!(s.groups[0].mask, Some(0));
         assert_eq!(s.groups[0].items, [Item::Path(1)]);
         assert_eq!(s.paths[4].mask, Some(1));
-        assert_eq!(s.masks[1].items, [Item::Path(2), Item::Group(1)]);
+        assert_eq!(s.masks[1].items, [Item::Group(1), Item::Path(2)]);
         // A mask on a mask.
         let s = ok(&src("group { mask { mask { $P }; $P }; $P }"));
         assert_eq!(s.masks[1].mask, Some(0));
@@ -1565,9 +1574,10 @@ use "deep""#,
                 mask: None
             }]
         );
-        assert_eq!(s.root[0], Item::Group(0));
+        // The root is front first: the file's order reversed.
+        assert_eq!(s.root[4], Item::Group(0));
         assert_eq!(
-            s.root[1],
+            s.root[3],
             Item::Use {
                 target: Target::Path(0),
                 mask: None
@@ -1588,7 +1598,7 @@ use "deep""#,
             }]
         );
         assert_eq!(
-            s.root[4],
+            s.root[0],
             Item::Use {
                 target: Target::Group(1),
                 mask: None

@@ -57,18 +57,19 @@ nodes can go on one line separated by `;`. Comments are `//`.
 
 ```kdl
 image width=1600 height=900 // must come first
-// drawn in FRONT of everything below it
+// drawn at the BACK
 path {
     …
 }
-// further back
+// drawn over it
 path {
     …
 }
 ```
 
-**Order is front first.** Each element is composited _behind_ everything before
-it. Put the background **last**. Pixels that nothing covers are transparent.
+**Order is back first**, like painting. Each element is drawn _over_ everything
+before it. Put the background **first**. Pixels that nothing covers are
+transparent.
 
 ### Paths
 
@@ -240,7 +241,8 @@ use "shape" {
 - Several shapes in one mask make a union. A mask inside a mask makes an
   intersection. An inverted mask inside a mask subtracts.
 - An `id` must be unique and defined before any `use` of it. Everything inside
-  `defs` is drawn only where it is used.
+  `defs` is drawn only where it is used. Because later elements are in front,
+  a highlight painted over a shape can use that shape's `id` as its mask.
 - Limits: at most 1,000,000 paths drawn in total, counting every `use`, and at
   most 64 levels of nesting.
 - Nodes on the same line need `;` between them (`} path {` is a syntax error).
@@ -249,13 +251,13 @@ use "shape" {
   `gradient 3.5 { stop 0 0 0 0 0.5; stop 1 0 0 0 1; }` inside and
   `gradient 1.5 { stop 0 0 0 0 0.5; stop 1 0 0 0 0; }` outside (clockwise points).
 - **Mask each object once.** Put all of an object's layers in one `group` with
-  one `mask { use "shape" }`, and end the group with an opaque full-canvas base
-  fill. If every layer carries its own copy of the mask, the half-transparent
+  one `mask { use "shape" }`, and start the group with an opaque full-canvas
+  base fill. If every layer carries its own copy of the mask, the half-transparent
   edges stack up and draw a dark outline round the object.
 
 ## Recipes
 
-Background filling the whole image, put **last**. A single opaque gradient
+Background filling the whole image, put **first**. A single opaque gradient
 covers everything:
 
 ```kdl

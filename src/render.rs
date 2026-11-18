@@ -1129,6 +1129,11 @@ mod tests {
             r#"
 image width=70 height=40
 path {
+    point 0 0
+    point 1 0
+    gradient 0 { stop 0 0.45201 0.31321 264.052; }
+}
+path {
     point -10 20
     point 80 20
     gradient 0 {
@@ -1136,11 +1141,6 @@ path {
         stop 3 0.62796 0.25768 29.2339
         stop 3 0 0 0 0
     }
-}
-path {
-    point 0 0
-    point 1 0
-    gradient 0 { stop 0 0.45201 0.31321 264.052; }
 }
 "#,
         );
@@ -1156,8 +1156,8 @@ path {
     fn semi_transparent_front_composites_over_back() {
         let c = render(&scene(&format!(
             "image width=4 height=4\n{}\n{}",
-            fill(1.0, 0.5),
-            fill(0.0, 1.0)
+            fill(0.0, 1.0),
+            fill(1.0, 0.5)
         )));
         // White at 50% over black: mid grey in gamma-encoded sRGB.
         let p = c.pixel(1, 1);
@@ -1221,7 +1221,7 @@ path closed=#true {
         let mask = format!("mask {{ {} }}", fill(0.0, 0.5));
         let (w, k) = (fill(1.0, 0.5), fill(0.0, 0.5));
         let grouped = render(&scene(&format!(
-            "image width=4 height=4\ngroup {{ {mask}; {w}; {k} }}"
+            "image width=4 height=4\ngroup {{ {mask}; {k}; {w} }}"
         )));
         // The layer is white at .5 over black at .5: premultiplied (.5, .5, .5, .75),
         // then scaled by .5.
@@ -1232,8 +1232,8 @@ path closed=#true {
             "{p:?} vs {expect:?}"
         );
         let separate = render(&scene(&format!(
-            "image width=4 height=4\npath {{ {mask}; point 0 0; point 1 0; gradient 0 {{ stop 0 1 0 0 0.5; }} }}\n\
-             path {{ {mask}; point 0 0; point 1 0; gradient 0 {{ stop 0 0 0 0 0.5; }} }}"
+            "image width=4 height=4\npath {{ {mask}; point 0 0; point 1 0; gradient 0 {{ stop 0 0 0 0 0.5; }} }}\n\
+             path {{ {mask}; point 0 0; point 1 0; gradient 0 {{ stop 0 1 0 0 0.5; }} }}"
         )));
         // (.25, .25, .25, .25) with black at .5 · .5 behind: alpha .4375.
         let expect = to_rgba8([0.25, 0.25, 0.25, 0.4375]);
@@ -1376,10 +1376,10 @@ path closed=#true {
         // Opaque columns 0..16 in front; behind, a group masked at .5 to rows 0..16.
         let front = vband(8.0, 8.0, 0.2, 1.0);
         let o = run(&format!(
-            "image width=32 height=32\n{front}\ngroup {{ mask {{ {} }}; {}; {} }}",
+            "image width=32 height=32\ngroup {{ mask {{ {} }}; {}; {} }}\n{front}",
             hband(8.0, 8.0, 0.5),
-            fill(1.0, 0.5),
-            fill(0.0, 0.5)
+            fill(0.0, 0.5),
+            fill(1.0, 0.5)
         ));
         // Front: its two 8-wide block columns, plus the next one, which block
         // culling cannot rule out. Mask: only where the front is not opaque,

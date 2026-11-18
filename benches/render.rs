@@ -13,7 +13,12 @@ fn many_paths(width: u32, height: u32, n: usize, points: usize) -> String {
 fn many_paths_eased(width: u32, height: u32, n: usize, points: usize, easing: &str) -> String {
     let e = format!("easing=\"{easing}\"");
     let mut s = format!("image width={width} height={height}\n");
-    for i in 0..n {
+    // An opaque background path that fills everything else.
+    s += "path closed=#true { point 100 100; point 900 200; point 500 700\n";
+    s += "gradient 1 { stop 0 0.3 0.05 250; stop 500 0.1 0.02 280; }\n";
+    s += "gradient 3 { stop 0 0.9 0.03 80; }\n}\n";
+    // Back first, so path 0 ends up in front.
+    for i in (0..n).rev() {
         s += "path {\n";
         for j in 0..points {
             let x = (j as f64 + 0.5) / points as f64 * width as f64;
@@ -30,10 +35,6 @@ fn many_paths_eased(width: u32, height: u32, n: usize, points: usize, easing: &s
             hue + 120
         );
     }
-    // An opaque background path that fills everything else.
-    s += "path closed=#true { point 100 100; point 900 200; point 500 700\n";
-    s += "gradient 1 { stop 0 0.3 0.05 250; stop 500 0.1 0.02 280; }\n";
-    s += "gradient 3 { stop 0 0.9 0.03 80; }\n}\n";
     s
 }
 
@@ -41,7 +42,9 @@ fn many_paths_eased(width: u32, height: u32, n: usize, points: usize, easing: &s
 /// own, in front of an opaque background.
 fn masked_groups(width: u32, height: u32, n: usize) -> String {
     let mut s = format!("image width={width} height={height}\n");
-    for i in 0..n {
+    s += "path { point 0 0; point 1 0; gradient 0 { stop 0 0.2 0.03 260; } }\n";
+    // Back first, so group 0 ends up in front.
+    for i in (0..n).rev() {
         let (cx, cy) = ((i * 397) % width as usize, (i * 211) % height as usize);
         let r = 150 + (i * 37) % 100;
         s += "group {\n    mask { path closed=#true {\n";
@@ -53,7 +56,7 @@ fn masked_groups(width: u32, height: u32, n: usize) -> String {
             );
         }
         s += "        gradient 1 { stop 0 0 0 0 0.8; stop 60 0 0 0 0; }\n        gradient 3 { stop 0 0 0 0 0.8; }\n    } }\n";
-        for k in 0..3 {
+        for k in (0..3).rev() {
             let y = cy as i64 + (k as i64 - 1) * 60;
             let hue = (i * 37 + k * 90) % 360;
             s += &format!(
@@ -64,7 +67,6 @@ fn masked_groups(width: u32, height: u32, n: usize) -> String {
         }
         s += "}\n";
     }
-    s += "path { point 0 0; point 1 0; gradient 0 { stop 0 0.2 0.03 260; } }\n";
     s
 }
 
@@ -99,7 +101,7 @@ fn shared_mask(width: u32, height: u32, n: usize) -> String {
         height * 3 / 4
     );
     s += "gradient 1 { stop 0 0 0 0; stop 80 0 0 0 0; }\ngradient 3 { stop 0 0 0 0; } } }\n";
-    for i in 0..n {
+    for i in (0..n).rev() {
         let y = (i as u32 * height) / n as u32;
         s += &format!(
             "path {{ mask {{ use \"m\" }}; point 0 {y}; point {width} {}; gradient 1.5 {{ stop 0 0.7 0.15 {}; stop 50 0.7 0.15 {} 0; }} }}\n",

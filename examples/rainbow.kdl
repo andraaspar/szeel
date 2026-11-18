@@ -1,5 +1,27 @@
 image width=1600 height=1200
 
+// Drawn first: a closed loop filling the whole image behind the rest, dark
+// outside, light inside.
+path closed=#true {
+    point 300 300
+    point 1300 250
+    point 1350 950
+    point 250 900
+
+    gradient 1.0 {
+        stop 0 0.35 0.08 260
+        stop 600 0.15 0.05 300
+    }
+    gradient 1.5 {
+        stop 0 0.35 0.08 140
+        stop 600 0.15 0.05 60
+    }
+    gradient 3.25 {
+        stop 0 0.9 0.05 80
+        stop 400 0.98 0.0 0
+    }
+}
+
 // A spiral stroke whose hue changes all the way along its left side.
 path {
     point 800 600
@@ -28,26 +50,5 @@ path {
     gradient 3.5 {
         stop 0 0.5 0.1 200
         stop 20 0.5 0.1 200 0
-    }
-}
-
-// A closed loop filling the whole image behind it: dark outside, light inside.
-path closed=#true {
-    point 300 300
-    point 1300 250
-    point 1350 950
-    point 250 900
-
-    gradient 1.0 {
-        stop 0 0.35 0.08 260
-        stop 600 0.15 0.05 300
-    }
-    gradient 1.5 {
-        stop 0 0.35 0.08 140
-        stop 600 0.15 0.05 60
-    }
-    gradient 3.25 {
-        stop 0 0.9 0.05 80
-        stop 400 0.98 0.0 0
     }
 }

@@ -67,8 +67,9 @@ exits with an error if there are any.
 ## Input format
 
 A scene is a [KDL](https://kdl.dev) file. It starts with
-`image width=… height=…`, followed by what to draw, **front first**: each
-element is composited behind everything drawn before it.
+`image width=… height=…`, followed by what to draw, **back first**, like
+painting: each element is drawn over everything before it. (The renderer
+still works front to back internally, so it can skip whatever is hidden.)
 
 | Node       | Where                                  | Contents                                                     |
 | ---------- | -------------------------------------- | ------------------------------------------------------------ |
@@ -135,7 +136,8 @@ element is composited behind everything drawn before it.
   subtracts.
 - **Reuse.** Give a `path` or `group` an `id` (unique in the file) and draw it
   again with `use "id"`, in the image or inside masks. A `use` can have a mask
-  of its own. Only elements that come earlier in the file can be used.
+  of its own. Only elements that come earlier in the file can be used, so
+  something painted over a shape can use that shape as its mask.
   Elements inside `defs` are only drawn where they are used.
 - **Limits.** Counting every `use` and mask in full, a file may draw at most
   1,000,000 paths, and groups, masks and `use`s may nest at most 64 levels
