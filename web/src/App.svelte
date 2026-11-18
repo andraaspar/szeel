@@ -12,7 +12,7 @@
   import { baseName, dirName } from './lib/backend'
   import { Renderer } from './lib/renderer'
   import type { Rendered } from './lib/renderer'
-  import { deletePoint, insertPoint, movePoint, newPath, pathAt } from './lib/edits'
+  import { deletePoint, insertPoint, layoutChanges, movePoint, newPath, pathAt } from './lib/edits'
   import type { Analysis, PointInfo } from './lib/types'
 
   // --- Examples and new scenes
@@ -31,8 +31,14 @@ path closed=#true {
     point 700 100
     point 700 500
     point 100 500
-    gradient 1 { stop 0 0.3 0.05 260; stop 400 0.15 0.03 280; }
-    gradient 3 { stop 0 0.85 0.04 80; stop 300 0.95 0.01 80; }
+    gradient 1 {
+        stop 0 0.3 0.05 260
+        stop 400 0.15 0.03 280
+    }
+    gradient 3 {
+        stop 0 0.85 0.04 80
+        stop 300 0.95 0.01 80
+    }
 }
 `
 
@@ -244,6 +250,19 @@ path closed=#true {
     editor.apply([change])
     const at = change.from + change.insert.indexOf('path')
     editor.select(at, at + 4)
+  }
+
+  async function formatScene() {
+    const src = text
+    let formatted: string
+    try {
+      formatted = await backend.format(src)
+    } catch (e) {
+      return flash(`Cannot format: ${errorText(e)}`)
+    }
+    if (text !== src) return // Edited while formatting; the result is stale.
+    if (formatted === src) return flash('Already formatted')
+    editor.apply(layoutChanges(src, formatted) ?? [{ from: 0, to: src.length, insert: formatted }])
   }
 
   // --- Files
@@ -491,6 +510,7 @@ path closed=#true {
         quit: () => getCurrentWindow().close(),
         undo: () => editor.undo(),
         redo: () => editor.redo(),
+        formatScene,
         addPath,
         setOverlay: (on) => (showOverlay = on),
         setHidden: (on) => (showHidden = on),

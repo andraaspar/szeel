@@ -54,6 +54,16 @@ Or build and run in one step:
 cargo run --release -- <input.kdl> <output.png>
 ```
 
+To reformat scene files in place, one node per line with four-space indents,
+keeping comments and blank lines between nodes:
+
+```bash
+target/release/szeel fmt <file.kdl>...
+```
+
+With `--check` it changes nothing, lists the files that need formatting, and
+exits with an error if there are any.
+
 ## Input format
 
 A scene is a [KDL](https://kdl.dev) file. It starts with
@@ -133,7 +143,9 @@ See `examples/mask.kdl` and `examples/reuse.kdl`.
 `web/` holds a desktop editor for scenes, built with Tauri 2: the KDL text on
 the left, a live render on the right, with the paths drawn over it. Drag
 points to move them, double-click a curve to add a point, Alt+click a point
-to delete it; every change is written back into the text.
+to delete it; every change is written back into the text. Edit → Format
+Document (Ctrl+Shift+F) lays the text out one node per line with four-space
+indents, keeping comments and blank lines between nodes.
 
 The UI (`web/src`, Svelte) does the editing; the Rust side
 (`web/src-tauri`) parses and renders with the `szeel` crate, natively and in

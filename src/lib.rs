@@ -2,6 +2,7 @@
 
 pub mod color;
 pub mod easing;
+pub mod format;
 pub mod geometry;
 pub mod gradient;
 pub mod hobby;

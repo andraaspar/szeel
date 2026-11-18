@@ -6,14 +6,17 @@ use std::sync::Arc;
 
 use miette::{NamedSource, Report};
 
+use szeel::format::{FormatError, format};
 use szeel::parse::{Diag, parse};
 use szeel::render::render;
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
+    if args.get(1).is_some_and(|a| a == "fmt") {
+        return fmt(&args[2..]);
+    }
     let [_, input, output] = args.as_slice() else {
-        eprintln!("usage: szeel <input.kdl> <output.png>");
-        return ExitCode::from(2);
+        return usage();
     };
     let (input, output) = (PathBuf::from(input), PathBuf::from(output));
 
@@ -62,4 +65,55 @@ fn main() -> ExitCode {
         return ExitCode::FAILURE;
     }
     ExitCode::SUCCESS
+}
+
+fn usage() -> ExitCode {
+    eprintln!("usage: szeel <input.kdl> <output.png>");
+    eprintln!("       szeel fmt [--check] <file.kdl>...");
+    ExitCode::from(2)
+}
+
+/// Reformats scene files in place, or with `--check` lists the ones that
+/// need it.
+fn fmt(args: &[String]) -> ExitCode {
+    let check = args.iter().any(|a| a == "--check");
+    let files: Vec<&String> = args.iter().filter(|a| *a != "--check").collect();
+    if files.is_empty() || files.iter().any(|f| f.starts_with('-')) {
+        return usage();
+    }
+    let mut ok = true;
+    for file in files {
+        let text = match std::fs::read_to_string(file) {
+            Ok(t) => t,
+            Err(e) => {
+                eprintln!("szeel: cannot read {file}: {e}");
+                ok = false;
+                continue;
+            }
+        };
+        let formatted = match format(&text) {
+            Ok(f) => f,
+            Err(FormatError::Syntax(e)) => {
+                eprintln!("{:?}", Report::new(e).with_source_code(NamedSource::new(file, text)));
+                ok = false;
+                continue;
+            }
+            Err(e) => {
+                eprintln!("szeel: cannot format {file}: {e}");
+                ok = false;
+                continue;
+            }
+        };
+        if formatted == text {
+            continue;
+        }
+        if check {
+            println!("{file}");
+            ok = false;
+        } else if let Err(e) = std::fs::write(file, formatted) {
+            eprintln!("szeel: cannot write {file}: {e}");
+            ok = false;
+        }
+    }
+    if ok { ExitCode::SUCCESS } else { ExitCode::FAILURE }
 }

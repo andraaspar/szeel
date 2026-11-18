@@ -67,6 +67,12 @@ async fn export_png(src: String, scale: f64, path: PathBuf) -> Result<(), String
     .map_err(|e| e.to_string())?
 }
 
+/// Reformats a scene's source.
+#[tauri::command]
+fn format(src: String) -> Result<String, String> {
+    szeel::format::format(&src).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 fn read_text(path: PathBuf) -> Result<String, String> {
     fs::read_to_string(&path).map_err(|e| e.to_string())
@@ -136,6 +142,7 @@ fn main() {
             analyze,
             render,
             export_png,
+            format,
             read_text,
             write_text,
             initial_file,

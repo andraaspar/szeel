@@ -56,9 +56,15 @@ A [KDL v2](https://kdl.dev) document. Booleans are `#true` / `#false`. Several
 nodes can go on one line separated by `;`. Comments are `//`.
 
 ```kdl
-image width=1600 height=900   // must come first
-path { … }                    // drawn in FRONT of everything below it
-path { … }                    // further back
+image width=1600 height=900 // must come first
+// drawn in FRONT of everything below it
+path {
+    …
+}
+// further back
+path {
+    …
+}
 ```
 
 **Order is front first.** Each element is composited _behind_ everything before
@@ -67,12 +73,18 @@ it. Put the background **last**. Pixels that nothing covers are transparent.
 ### Paths
 
 ```kdl
-path closed=#false id="name" {     // both properties optional
-    point 100 500                  // x y in pixels, y points DOWN
+path closed=#false id="name" { // both properties optional
+    point 100 500 // x y in pixels, y points DOWN
     point 400 150
     point 700 500
-    gradient 1.5 { stop 0 0.75 0.18 40; stop 60 0.75 0.18 40 0; }
-    gradient 3.5 { stop 0 0.55 0.12 250; stop 80 0.55 0.12 250 0; }
+    gradient 1.5 {
+        stop 0 0.75 0.18 40
+        stop 60 0.75 0.18 40 0
+    }
+    gradient 3.5 {
+        stop 0 0.55 0.12 250
+        stop 80 0.55 0.12 250 0
+    }
     // optionally one `mask { … }`
 }
 ```
@@ -179,10 +191,39 @@ of range and triggers a warning.
 ### Groups, masks and reuse
 
 ```kdl
-group id="g" { path {…}; path {…}; mask {…} }    // a group matters only with a mask
-mask invert=#false { path {…}; group {…}; use "id" }
-defs { path id="shape" {…} }                     // defined but not drawn
-use "shape" { mask {…} }                         // draw an earlier id again
+// a group matters only with a mask
+group id="g" {
+    path {
+        …
+    }
+    path {
+        …
+    }
+    mask {
+        …
+    }
+}
+mask invert=#false {
+    path {
+        …
+    }
+    group {
+        …
+    }
+    use "id"
+}
+// defined but not drawn
+defs {
+    path id="shape" {
+        …
+    }
+}
+// draw an earlier id again
+use "shape" {
+    mask {
+        …
+    }
+}
 ```
 
 - A `mask` goes inside a `path`, `group`, `use` or another `mask`, at most one
@@ -211,7 +252,13 @@ Background filling the whole image, put **last**. A single opaque gradient
 covers everything:
 
 ```kdl
-path { point 0 0; point 1 0; gradient 0 { stop 0 0.15 0.04 270; } }
+path {
+    point 0 0
+    point 1 0
+    gradient 0 {
+        stop 0 0.15 0.04 270
+    }
+}
 ```
 
 Background that changes smoothly from top to bottom: a horizontal line
@@ -222,9 +269,16 @@ for a horizon.
 
 ```kdl
 path {
-    point 0 450; point 1600 450
-    gradient 1.5 { stop 0 0.5 0.13 340; stop 450 0.12 0.05 270; }
-    gradient 3.5 { stop 0 0.5 0.13 340; stop 450 0.2 0.08 20; }
+    point 0 450
+    point 1600 450
+    gradient 1.5 {
+        stop 0 0.5 0.13 340
+        stop 450 0.12 0.05 270
+    }
+    gradient 3.5 {
+        stop 0 0.5 0.13 340
+        stop 450 0.2 0.08 20
+    }
 }
 ```
 
@@ -233,10 +287,22 @@ side):
 
 ```kdl
 path {
-    point 200 600; point 600 300; point 1000 500; point 1400 250
-    gradient 1.0 { stop 0 0.85 0.2 30;  stop 70 0.6 0.2 30 0; }
-    gradient 2.0 { stop 0 0.85 0.2 300; stop 70 0.6 0.2 300 0; }
-    gradient 3.0 { stop 0 0.85 0.2 300; stop 70 0.6 0.2 300 0; }
+    point 200 600
+    point 600 300
+    point 1000 500
+    point 1400 250
+    gradient 1.0 {
+        stop 0 0.85 0.2 30
+        stop 70 0.6 0.2 30 0
+    }
+    gradient 2.0 {
+        stop 0 0.85 0.2 300
+        stop 70 0.6 0.2 300 0
+    }
+    gradient 3.0 {
+        stop 0 0.85 0.2 300
+        stop 70 0.6 0.2 300 0
+    }
 }
 ```
 
@@ -249,9 +315,18 @@ outside:
 
 ```kdl
 path closed=#true {
-    point 600 300; point 900 350; point 850 600; point 550 550
-    gradient 3.5 { stop 0 0.9 0.1 80; stop 120 0.98 0.02 80; }
-    gradient 1.5 { stop 0 0.9 0.1 80; stop 60 0.9 0.1 80 0; }
+    point 600 300
+    point 900 350
+    point 850 600
+    point 550 550
+    gradient 3.5 {
+        stop 0 0.9 0.1 80
+        stop 120 0.98 0.02 80
+    }
+    gradient 1.5 {
+        stop 0 0.9 0.1 80
+        stop 60 0.9 0.1 80 0
+    }
 }
 ```
 
@@ -260,10 +335,20 @@ Hole punched through an element:
 ```kdl
 path {
     mask invert=#true {
-        path { point 780 450; point 820 450; gradient 0 { stop 0 0 0 0; stop 40 0 0 0 0; } }
+        path {
+            point 780 450
+            point 820 450
+            gradient 0 {
+                stop 0 0 0 0
+                stop 40 0 0 0 0
+            }
+        }
     }
-    point 0 0; point 1 0
-    gradient 0 { stop 0 0.95 0.02 90; }
+    point 0 0
+    point 1 0
+    gradient 0 {
+        stop 0 0.95 0.02 90
+    }
 }
 ```
 
@@ -307,15 +392,46 @@ shape. Then paint its interior with fields clipped by that mask:
 and narrow ends:
 
 ```kdl
-path { point 400 300; point 420 420; point 410 560
-  gradient 0.5 { stop 0 0.7 0.17 55 0; stop 1 0.7 0.17 55 0; }   // caps invisible
-  gradient 2.5 { stop 0 0.7 0.17 55 0; stop 1 0.7 0.17 55 0; }
-  gradient 1.05 { stop 0 0.7 0.17 55 0.05; stop 2 0.7 0.17 55 0; }   // thin ends
-  gradient 1.5  { stop 0 0.7 0.17 55 0.2; stop 6 0.7 0.17 55 0; }    // wide middle
-  gradient 1.95 { stop 0 0.7 0.17 55 0.05; stop 2 0.7 0.17 55 0; }
-  gradient 3.05 { stop 0 0.7 0.17 55 0.05; stop 2 0.7 0.17 55 0; }
-  gradient 3.5  { stop 0 0.7 0.17 55 0.2; stop 6 0.7 0.17 55 0; }
-  gradient 3.95 { stop 0 0.7 0.17 55 0.05; stop 2 0.7 0.17 55 0; } }
+path {
+    point 400 300
+    point 420 420
+    point 410 560
+    // caps invisible
+    gradient 0.5 {
+        stop 0 0.7 0.17 55 0
+        stop 1 0.7 0.17 55 0
+    }
+    gradient 2.5 {
+        stop 0 0.7 0.17 55 0
+        stop 1 0.7 0.17 55 0
+    }
+    // thin ends
+    gradient 1.05 {
+        stop 0 0.7 0.17 55 0.05
+        stop 2 0.7 0.17 55 0
+    }
+    // wide middle
+    gradient 1.5 {
+        stop 0 0.7 0.17 55 0.2
+        stop 6 0.7 0.17 55 0
+    }
+    gradient 1.95 {
+        stop 0 0.7 0.17 55 0.05
+        stop 2 0.7 0.17 55 0
+    }
+    gradient 3.05 {
+        stop 0 0.7 0.17 55 0.05
+        stop 2 0.7 0.17 55 0
+    }
+    gradient 3.5 {
+        stop 0 0.7 0.17 55 0.2
+        stop 6 0.7 0.17 55 0
+    }
+    gradient 3.95 {
+        stop 0 0.7 0.17 55 0.05
+        stop 2 0.7 0.17 55 0
+    }
+}
 ```
 
 **Accurate form and light: contours of computed fields.** When shading must

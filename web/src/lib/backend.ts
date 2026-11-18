@@ -30,6 +30,11 @@ export function exportPng(src: string, scale: number, path: string): Promise<voi
   return invoke('export_png', { src, scale, path })
 }
 
+/** Reformats a scene's source; rejects if it has syntax errors. */
+export function format(src: string): Promise<string> {
+  return invoke('format', { src })
+}
+
 export function readText(path: string): Promise<string> {
   return invoke('read_text', { path })
 }

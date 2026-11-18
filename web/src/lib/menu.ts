@@ -15,6 +15,7 @@ export interface MenuActions {
   quit(): void
   undo(): void
   redo(): void
+  formatScene(): void
   addPath(): void
   setOverlay(on: boolean): void
   setHidden(on: boolean): void
@@ -92,7 +93,10 @@ export async function installMenu(
           await item('Quit', actions.quit, 'CmdOrCtrl+Q'),
         ],
       }),
-      await Submenu.new({ text: 'Edit', items: [undoItem, redoItem] }),
+      await Submenu.new({
+        text: 'Edit',
+        items: [undoItem, redoItem, await sep(), await item('Format Document', actions.formatScene, 'CmdOrCtrl+Shift+F')],
+      }),
       await Submenu.new({
         text: 'Scene',
         items: [await item('Add Path', actions.addPath, 'CmdOrCtrl+Shift+A')],

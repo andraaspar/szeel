@@ -18,10 +18,22 @@ path {
     point 520 800
     point 290 690
 
-    gradient 0 { stop 0 0.82 0.14 20; stop 70 0.82 0.14 20 0; }
-    gradient 1.2 { stop 0 0.8 0.16 90; stop 80 0.8 0.16 90 0; }
-    gradient 1.8 { stop 0 0.72 0.18 300; stop 60 0.72 0.18 300 0; }
-    gradient 3.5 { stop 0 0.62 0.12 220; stop 26 0.62 0.12 220 0; }
+    gradient 0 {
+        stop 0 0.82 0.14 20
+        stop 70 0.82 0.14 20 0
+    }
+    gradient 1.2 {
+        stop 0 0.8 0.16 90
+        stop 80 0.8 0.16 90 0
+    }
+    gradient 1.8 {
+        stop 0 0.72 0.18 300
+        stop 60 0.72 0.18 300 0
+    }
+    gradient 3.5 {
+        stop 0 0.62 0.12 220
+        stop 26 0.62 0.12 220 0
+    }
 }
 
 // The tile: a rounded square, dark inside, nothing outside.
@@ -42,5 +54,8 @@ path closed=#true {
     point 100 512
     point 104 200
     point 124 124
-    gradient 3 { stop 0 0.32 0.05 250; stop 400 0.2 0.03 275; }
+    gradient 3 {
+        stop 0 0.32 0.05 250
+        stop 400 0.2 0.03 275
+    }
 }

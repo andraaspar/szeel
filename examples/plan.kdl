@@ -7,11 +7,11 @@ path {
     point 700 500
 
     gradient 1.5 {
-        stop 0  0.75 0.18 40
+        stop 0 0.75 0.18 40
         stop 60 0.75 0.18 40 0.0
     }
     gradient 3.5 {
-        stop 0  0.55 0.12 250
+        stop 0 0.55 0.12 250
         stop 80 0.55 0.12 250 0.0
     }
 }

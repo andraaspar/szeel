@@ -84,7 +84,10 @@ export function newPath(text: string, cx: number, cy: number, size: number): Cha
     `    point ${fmt(cx - r)} ${fmt(cy)}\n` +
     `    point ${fmt(cx)} ${fmt(cy - r / 2)}\n` +
     `    point ${fmt(cx + r)} ${fmt(cy)}\n` +
-    `    gradient 1.5 { stop 0 0.7 0.17 ${hue}; stop ${Math.round(r / 5)} 0.7 0.17 ${hue} 0; }\n` +
+    `    gradient 1.5 {\n` +
+    `        stop 0 0.7 0.17 ${hue}\n` +
+    `        stop ${Math.round(r / 5)} 0.7 0.17 ${hue} 0\n` +
+    `    }\n` +
     `}\n`
   return { from: at, to: at, insert: m && !m[0].endsWith('\n') ? '\n' + insert : insert }
 }
@@ -111,4 +114,29 @@ export function segmentStarts(path: PathInfo): number[] {
     prev = p
   })
   return starts
+}
+
+/** Characters a reformat may add, drop or change. */
+const LAYOUT = /[\s;]/
+
+/**
+ * The changes that turn `from` into `to` when they differ only in layout
+ * (whitespace and `;`), so the cursor and undo history stay where they
+ * belong. Null if they differ in anything else.
+ */
+export function layoutChanges(from: string, to: string): Change[] | null {
+  const changes: Change[] = []
+  let i = 0
+  let j = 0
+  for (;;) {
+    let i2 = i
+    let j2 = j
+    while (i2 < from.length && LAYOUT.test(from[i2])) i2++
+    while (j2 < to.length && LAYOUT.test(to[j2])) j2++
+    if (from.slice(i, i2) !== to.slice(j, j2)) changes.push({ from: i, to: i2, insert: to.slice(j, j2) })
+    if (i2 === from.length || j2 === to.length) return i2 === from.length && j2 === to.length ? changes : null
+    if (from[i2] !== to[j2]) return null
+    i = i2 + 1
+    j = j2 + 1
+  }
 }
