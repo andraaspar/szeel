@@ -12,7 +12,7 @@ use rayon::prelude::*;
 
 use crate::geometry::{Aabb, Polyline};
 use crate::gradient::Paint;
-use crate::hobby::{Cubic, hobby};
+use crate::hobby::Cubic;
 use crate::parse::{GroupId, Item, MaskId, PathDef, PathId, Scene, Target};
 
 /// Tile edge, in pixels. Tiles are stored contiguously, so each one can be
@@ -251,12 +251,11 @@ impl PPath {
         if paint.is_empty() {
             return none;
         }
-        let Some(pts) = def.distinct_points() else {
+        let Some(cubics) = def.cubics() else {
             return none;
         };
         if let Some(e) = paint.extent() {
             // The curve lies inside the hull of its control points.
-            let cubics = hobby(&pts, def.closed);
             let mut b = Aabb::EMPTY;
             for p in cubics.iter().flatten() {
                 b.add(p[0] as f32, p[1] as f32);
@@ -272,7 +271,7 @@ impl PPath {
         {
             // A filled shape: if the loop is simple, a pixel outside its bbox
             // always finds its closest point on the outer side.
-            let geom = PreparedPath::new(def, &hobby(&pts, true));
+            let geom = PreparedPath::new(def, &cubics);
             let area = geom.poly.signed_area2();
             let outer = if area > 0.0 {
                 left
@@ -467,7 +466,7 @@ impl<'s> Prepared<'s> {
                 let cubics = match &pp.cubics {
                     Some(c) => c,
                     None if def.gradients.is_empty() => return None,
-                    None => &hobby(&def.distinct_points()?, def.closed),
+                    None => &def.cubics()?,
                 };
                 #[cfg(test)]
                 self.stats.prepared.fetch_add(1, Relaxed);

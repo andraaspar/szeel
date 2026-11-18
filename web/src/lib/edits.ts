@@ -21,6 +21,15 @@ export function movePoint(p: PointInfo, x: number, y: number, decimals = 0): Cha
   ]
 }
 
+/** Makes a point a cusp, or a cusp a smooth point again. */
+export function toggleCusp(text: string, p: PointInfo): Change {
+  if (!p.cr) return { from: p.yr[1], to: p.yr[1], insert: ' cusp=#true' }
+  if (!p.cusp) return { from: p.cr[0], to: p.cr[1], insert: 'cusp=#true' }
+  let from = p.cr[0]
+  while (from > p.yr[1] && /[ \t]/.test(text[from - 1])) from--
+  return { from, to: p.cr[1], insert: '' }
+}
+
 function lineStart(text: string, i: number): number {
   return text.lastIndexOf('\n', i - 1) + 1
 }

@@ -92,6 +92,13 @@ path closed=#false id="name" { // both properties optional
 - The points are joined by a smooth curve through all of them (Hobby's
   algorithm, like MetaPost). Two points give a straight segment. A closed path
   loops back smoothly to the first point.
+- `point x y cusp=#true` makes a **sharp corner** at that point: the curve is
+  cut there, and each stretch between cusps is its own smooth curve. Cusps on
+  every point give a polygon with straight sides. A stretch of three points
+  with the middle one far from the line between the others bulges into a
+  half-circle whose ends meet the next stretch smoothly, so pull the middle
+  point closer to see the corner. A cusp on the first or last point of an
+  open path does nothing.
 - Two almost identical points (`point 400 300; point 400.01 300`) act as a
   **dot**: its gradients become a radial glow.
 

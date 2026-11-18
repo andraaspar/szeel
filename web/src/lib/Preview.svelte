@@ -18,6 +18,7 @@
     ondragend: () => void
     oninsert: (path: number, after: number, x: number, y: number) => void
     ondelete: (path: number, point: number) => void
+    oncusp: (path: number, point: number) => void
     onnudge: (dx: number, dy: number) => void
   }
   let {
@@ -34,6 +35,7 @@
     ondragend,
     oninsert,
     ondelete,
+    oncusp,
     onnudge,
   }: Props = $props()
 
@@ -129,6 +131,14 @@
 
   function segD(c: number[]) {
     return `M${sx(c[0])} ${sy(c[1])}C${sx(c[2])} ${sy(c[3])} ${sx(c[4])} ${sy(c[5])} ${sx(c[6])} ${sy(c[7])}`
+  }
+
+  function circle(x: number, y: number, r: number) {
+    return `M${x - r} ${y}a${r} ${r} 0 1 0 ${2 * r} 0a${r} ${r} 0 1 0 ${-2 * r} 0Z`
+  }
+
+  function diamond(x: number, y: number, r: number) {
+    return `M${x} ${y - r}L${x + r} ${y}L${x} ${y + r}L${x - r} ${y}Z`
   }
 
   const visible = $derived(
@@ -236,6 +246,11 @@
         ondelete(activePath, activePoint)
         return
       }
+      if ((e.key === 'c' || e.key === 'C') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault()
+        oncusp(activePath, activePoint)
+        return
+      }
     }
     if (e.key === 'Escape') onselect(-1, -1)
   }
@@ -300,19 +315,25 @@
       {#each visible as { p, i } (i)}
         {#if i === activePath || activePath < 0}
           {#each p.points as pt, j}
+            {@const r = i === activePath ? 6 : 4}
+            <!-- Cusps are diamonds; smooth points are circles. -->
             <!-- svelte-ignore a11y_no_static_element_interactions -->
-            <circle
+            <path
               class="handle role-{p.role}"
               class:active-path={i === activePath}
               class:selected={i === activePath && j === activePoint}
               class:first={j === 0}
-              cx={sx(pt.x)}
-              cy={sy(pt.y)}
-              r={i === activePath ? 6 : 4}
+              d={pt.cusp ? diamond(sx(pt.x), sy(pt.y), r * 1.3) : circle(sx(pt.x), sy(pt.y), r)}
               onpointerdown={(e) => onHandleDown(e, i, j)}
+              ondblclick={(e) => {
+                e.stopPropagation()
+                oncusp(i, j)
+              }}
             >
-              <title>{p.id ? `${p.id} · ` : ''}point {j + 1}: {pt.x}, {pt.y}</title>
-            </circle>
+              <title
+                >{p.id ? `${p.id} · ` : ''}point {j + 1}: {pt.x}, {pt.y}{pt.cusp ? ' · cusp' : ''} (double-click or C to toggle cusp)</title
+              >
+            </path>
           {/each}
         {/if}
       {/each}

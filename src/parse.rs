@@ -10,6 +10,7 @@ use miette::{Diagnostic, LabeledSpan, NamedSource, Severity, SourceSpan};
 use crate::color::Oklch;
 use crate::easing::{EASING_NAMES, Easing};
 use crate::gradient::{Gradient, Stop};
+use crate::hobby::{Cubic, hobby_cusps};
 
 /// Largest width or height accepted (the PNG limit).
 pub const MAX_DIMENSION: u32 = i32::MAX as u32;
@@ -64,6 +65,8 @@ pub enum Item {
 pub struct PathDef {
     pub closed: bool,
     pub points: Vec<[f64; 2]>,
+    /// For each point, whether the curve may turn sharply there.
+    pub cusps: Vec<bool>,
     /// Usable gradients, in file order.
     pub gradients: Vec<Gradient>,
     pub mask: Option<MaskId>,
@@ -74,18 +77,33 @@ pub struct PathDef {
 
 impl PathDef {
     /// The points without repeats (and, on a closed path, without a last
-    /// point equal to the first), or `None` if fewer than 2 remain.
-    pub fn distinct_points(&self) -> Option<Vec<[f64; 2]>> {
+    /// point equal to the first), with their cusp flags, or `None` if fewer
+    /// than 2 remain. A repeated point is a cusp if any of its copies is.
+    pub fn distinct_points(&self) -> Option<(Vec<[f64; 2]>, Vec<bool>)> {
         let mut pts: Vec<[f64; 2]> = Vec::with_capacity(self.points.len());
-        for &p in &self.points {
-            if pts.last() != Some(&p) {
+        let mut cusps: Vec<bool> = Vec::with_capacity(self.points.len());
+        for (k, &p) in self.points.iter().enumerate() {
+            let cusp = self.cusps.get(k).copied().unwrap_or(false);
+            if pts.last() == Some(&p) {
+                *cusps.last_mut().unwrap() |= cusp;
+            } else {
                 pts.push(p);
+                cusps.push(cusp);
             }
         }
         if self.closed && pts.len() > 1 && pts.first() == pts.last() {
             pts.pop();
+            let c = cusps.pop().unwrap();
+            cusps[0] |= c;
         }
-        (pts.len() >= 2).then_some(pts)
+        (pts.len() >= 2).then_some((pts, cusps))
+    }
+
+    /// The curve through the points, or `None` if fewer than 2 distinct
+    /// points remain.
+    pub fn cubics(&self) -> Option<Vec<Cubic>> {
+        let (pts, cusps) = self.distinct_points()?;
+        Some(hobby_cusps(&pts, &cusps, self.closed))
     }
 }
 
@@ -550,25 +568,21 @@ impl Parser {
 
     fn path_body(&mut self, node: &KdlNode, id: Option<String>) -> R<PathId> {
         let span = node.name().span();
-        let closed = match node.entry("closed") {
-            None => false,
-            Some(e) => match e.value() {
-                KdlValue::Bool(b) => *b,
-                _ => {
-                    return Err(self.err(
-                        Diag::error(e.span(), "`closed` must be `#true` or `#false`").label("here"),
-                    ));
-                }
-            },
-        };
+        let closed = self.flag(node, "closed")?;
         let mut points = Vec::new();
+        let mut cusps = Vec::new();
+        let mut end_cusps = Vec::new();
         let mut gradients = Vec::new();
         let mut slot = MaskSlot::default();
         let mut ok = true;
         for child in node.children().map(|d| d.nodes()).unwrap_or_default() {
             match child.name().value() {
                 "point" => match self.point(child) {
-                    Ok(p) => points.push(p),
+                    Ok((p, cusp)) => {
+                        points.push(p);
+                        cusps.push(cusp.is_some());
+                        end_cusps.push(cusp);
+                    }
                     Err(Failed) => ok = false,
                 },
                 "gradient" => match self.gradient(child, closed) {
@@ -596,9 +610,19 @@ impl Parser {
                     .label(format!("has {}", points.len())),
             ));
         }
+        if !closed {
+            let ends = [end_cusps.first(), end_cusps.last()];
+            for span in ends.into_iter().flatten().flatten() {
+                self.diags.push(
+                    Diag::warning(*span, "`cusp` on an end point of an open path does nothing")
+                        .label("end point"),
+                );
+            }
+        }
         let def = PathDef {
             closed,
             points,
+            cusps,
             gradients,
             mask: slot.id,
             id,
@@ -663,17 +687,7 @@ impl Parser {
     fn mask(&mut self, node: &KdlNode) -> R<MaskId> {
         self.check_entries(node, 0, 0, &["invert"])?;
         let span = node.name().span();
-        let invert = match node.entry("invert") {
-            None => false,
-            Some(e) => match e.value() {
-                KdlValue::Bool(b) => *b,
-                _ => {
-                    return Err(self.err(
-                        Diag::error(e.span(), "`invert` must be `#true` or `#false`").label("here"),
-                    ));
-                }
-            },
-        };
+        let invert = self.flag(node, "invert")?;
         self.enter(span)?;
         let mut slot = MaskSlot::default();
         let items = self.children(node.children(), Ctx::Mask, Some(&mut slot));
@@ -870,10 +884,25 @@ impl Parser {
         }
     }
 
-    fn point(&mut self, node: &KdlNode) -> R<[f64; 2]> {
+    /// A point, and the span of its `cusp` property if that is `#true`.
+    fn point(&mut self, node: &KdlNode) -> R<([f64; 2], Option<SourceSpan>)> {
         self.no_children(node)?;
-        let args = self.check_entries(node, 2, 2, &[])?;
-        Ok([self.number(args[0], "x")?, self.number(args[1], "y")?])
+        let args = self.check_entries(node, 2, 2, &["cusp"])?;
+        let p = [self.number(args[0], "x")?, self.number(args[1], "y")?];
+        let cusp = self.flag(node, "cusp")?;
+        Ok((p, cusp.then(|| node.entry("cusp").unwrap().span())))
+    }
+
+    /// A boolean property, `false` if absent.
+    fn flag(&mut self, node: &KdlNode, name: &str) -> R<bool> {
+        match node.entry(name).map(|e| (e, e.value())) {
+            None => Ok(false),
+            Some((_, KdlValue::Bool(b))) => Ok(*b),
+            Some((e, _)) => Err(self.err(
+                Diag::error(e.span(), format!("`{name}` must be `#true` or `#false`"))
+                    .label("here"),
+            )),
+        }
     }
 
     fn gradient(&mut self, node: &KdlNode, closed: bool) -> R<Option<Gradient>> {
@@ -1396,6 +1425,31 @@ path closed=#true {
         assert_eq!(msgs.len(), 2);
         assert!(msgs.iter().all(|(s, _)| *s == Severity::Warning));
         assert!(p.scene.unwrap().paths[0].gradients.is_empty());
+    }
+
+    #[test]
+    fn cusps() {
+        let s = ok(&src(
+            "path closed=#true { point 0 0 cusp=#true; point 5 0; point 5 5 cusp=#false; point 0 0; gradient 1 { stop 0 0 0 0 } }",
+        ));
+        assert_eq!(s.paths[0].cusps, [true, false, false, false]);
+        // The repeated last point folds into the first, and so does its flag.
+        let (pts, cusps) = s.paths[0].distinct_points().unwrap();
+        assert_eq!(pts.len(), 3);
+        assert_eq!(cusps, [true, false, false]);
+        assert_eq!(
+            warnings(&src(
+                "path { point 0 0 cusp=#true; point 1 1 cusp=#true; point 2 0 cusp=#true; gradient 0 { stop 0 0 0 0 } }"
+            )),
+            [
+                "`cusp` on an end point of an open path does nothing",
+                "`cusp` on an end point of an open path does nothing",
+            ]
+        );
+        assert_eq!(
+            errors(&src("path { point 0 0 cusp=1; point 1 1 }")),
+            ["`cusp` must be `#true` or `#false`"]
+        );
     }
 
     #[test]

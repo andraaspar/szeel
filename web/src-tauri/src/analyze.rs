@@ -13,7 +13,7 @@ use kdl::{KdlDocument, KdlNode};
 use miette::{Severity, SourceSpan};
 use serde::Serialize;
 
-use szeel::hobby::hobby;
+use szeel::hobby::hobby_cusps;
 use szeel::parse::{Scene, parse};
 
 /// Maps byte offsets in a UTF-8 string to UTF-16 offsets.
@@ -69,6 +69,10 @@ struct Point {
     /// Source ranges of the x and y values.
     xr: [usize; 2],
     yr: [usize; 2],
+    /// Whether the curve may turn sharply here (`cusp=#true`).
+    cusp: bool,
+    /// Source range of the `cusp` property, if present.
+    cr: Option<[usize; 2]>,
 }
 
 #[derive(Serialize)]
@@ -191,12 +195,15 @@ fn path_info(node: &KdlNode, role: &'static str, off: &Offsets) -> PathInfo {
         let (Some(x), Some(y)) = (number(ex.value()), number(ey.value())) else {
             continue;
         };
+        let ce = child.entry("cusp");
         points.push(Point {
             x,
             y,
             node: off.range(child.span()),
             xr: off.range(ex.span()),
             yr: off.range(ey.span()),
+            cusp: ce.and_then(|e| e.value().as_bool()).unwrap_or(false),
+            cr: ce.map(|e| off.range(e.span())),
         });
     }
     PathInfo {
@@ -212,19 +219,28 @@ fn path_info(node: &KdlNode, role: &'static str, off: &Offsets) -> PathInfo {
 
 fn curves(points: &[Point], closed: bool) -> Vec<[f64; 8]> {
     let mut pts: Vec<[f64; 2]> = Vec::with_capacity(points.len());
+    let mut cusps: Vec<bool> = Vec::with_capacity(points.len());
     for p in points {
-        let p = [p.x, p.y];
-        if pts.last() != Some(&p) && p.iter().all(|c| c.is_finite()) {
-            pts.push(p);
+        let xy = [p.x, p.y];
+        if !xy.iter().all(|c| c.is_finite()) {
+            continue;
+        }
+        if pts.last() == Some(&xy) {
+            *cusps.last_mut().unwrap() |= p.cusp;
+        } else {
+            pts.push(xy);
+            cusps.push(p.cusp);
         }
     }
     if closed && pts.len() > 1 && pts.first() == pts.last() {
         pts.pop();
+        let c = cusps.pop().unwrap();
+        cusps[0] |= c;
     }
     if pts.len() < 2 {
         return Vec::new();
     }
-    hobby(&pts, closed)
+    hobby_cusps(&pts, &cusps, closed)
         .into_iter()
         .map(|[a, b, c, d]| [a[0], a[1], b[0], b[1], c[0], c[1], d[0], d[1]])
         .collect()
@@ -272,6 +288,26 @@ mod tests {
         assert_eq!(s(&p["points"][0]["yr"]), "2.5");
         assert_eq!(s(&p["points"][1]["yr"]), "8");
         assert_eq!(p["curves"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn cusps() {
+        let src = "image width=10 height=10\npath {\n    point 0 0\n    point 5 5 cusp=#true\n    point 9 0 cusp=#false\n}\n";
+        let a = serde_json::to_value(analyze(src)).unwrap();
+        let pts = &a["paths"][0]["points"];
+        let s = |r: &serde_json::Value| {
+            &src[r[0].as_u64().unwrap() as usize..r[1].as_u64().unwrap() as usize]
+        };
+        assert_eq!(pts[0]["cusp"], false);
+        assert!(pts[0]["cr"].is_null());
+        assert_eq!(pts[1]["cusp"], true);
+        assert_eq!(s(&pts[1]["cr"]), "cusp=#true");
+        assert_eq!(pts[2]["cusp"], false);
+        assert_eq!(s(&pts[2]["cr"]), "cusp=#false");
+        // Two straight segments meeting at the cusp.
+        let c = a["paths"][0]["curves"].as_array().unwrap();
+        assert_eq!(c.len(), 2);
+        assert_eq!(c[0][2].as_f64().unwrap(), 5.0 / 3.0);
     }
 
     #[test]

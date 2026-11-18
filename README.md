@@ -73,7 +73,7 @@ element is composited behind everything drawn before it.
 | Node       | Where                                  | Contents                                                     |
 | ---------- | -------------------------------------- | ------------------------------------------------------------ |
 | `image`    | first, top level only                  | `width`, `height` properties                                 |
-| `path`     | top level, `group`, `mask`, `defs`     | `point x y`, `gradient t { stop … }`, at most one `mask`; `closed`, `id` properties |
+| `path`     | top level, `group`, `mask`, `defs`     | `point x y [cusp=#true]`, `gradient t { stop … }`, at most one `mask`; `closed`, `id` properties |
 | `group`    | top level, `group`, `mask`, `defs`     | `path`, `group`, `use`, at most one `mask`; `id` property    |
 | `use "id"` | top level, `group`, `mask`             | at most one `mask`                                           |
 | `mask`     | in `path`, `group`, `use` or `mask`    | `path`, `group`, `use`, at most one `mask`; `invert` property |
@@ -83,6 +83,11 @@ element is composited behind everything drawn before it.
   (Hobby's algorithm). Coordinates are in pixels, with y pointing down. A
   `closed=#true` path loops back to its first point. Each pixel is coloured
   from its closest point on the path.
+- **Cusps.** `point x y cusp=#true` lets the curve turn sharply at that
+  point: the path is cut there, and each stretch between cusps is a smooth
+  curve of its own (like MetaPost's `&`). A stretch of two points is straight,
+  so cusps on every point give a polygon. On an open path, a cusp on the first
+  or last point does nothing. See `examples/cusp.kdl`.
 - **Gradients.** `gradient t { … }` places a colour ramp at position `t` around
   the path. A pixel blends the two gradients on either side of its own `t`,
   wrapping around. On an open path, `t` runs from 0 to 4: 0–1 is the cap
@@ -143,9 +148,10 @@ See `examples/mask.kdl` and `examples/reuse.kdl`.
 `web/` holds a desktop editor for scenes, built with Tauri 2: the KDL text on
 the left, a live render on the right, with the paths drawn over it. Drag
 points to move them, double-click a curve to add a point, Alt+click a point
-to delete it; every change is written back into the text. Edit → Format
-Document (Ctrl+Shift+F) lays the text out one node per line with four-space
-indents, keeping comments and blank lines between nodes.
+to delete it, and double-click a point (or select it and press C) to turn a
+cusp on or off; cusps show as diamonds. Every change is written back into the
+text. Edit → Format Document (Ctrl+Shift+F) lays the text out one node per
+line with four-space indents, keeping comments and blank lines between nodes.
 
 The UI (`web/src`, Svelte) does the editing; the Rust side
 (`web/src-tauri`) parses and renders with the `szeel` crate, natively and in

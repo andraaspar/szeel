@@ -114,6 +114,49 @@ pub fn hobby(pts: &[P], closed: bool) -> Vec<Cubic> {
         .collect()
 }
 
+/// Like [`hobby`], but the curve may turn sharply at points whose `cusp` flag
+/// is set: the path is cut there into runs, each solved as an open path with
+/// curl 1 at both ends (MetaPost's `&`). On an open path, cusps at the end
+/// points change nothing. Segment `k` still starts at point `k`.
+pub fn hobby_cusps(pts: &[P], cusp: &[bool], closed: bool) -> Vec<Cubic> {
+    let n = pts.len();
+    let is_cusp = |k: usize| cusp.get(k).copied().unwrap_or(false);
+    let first = if closed {
+        (0..n).find(|&k| is_cusp(k))
+    } else {
+        (1..n.saturating_sub(1)).find(|&k| is_cusp(k))
+    };
+    let Some(first) = first else {
+        return hobby(pts, closed);
+    };
+    if !closed {
+        let flags: Vec<bool> = (0..n).map(is_cusp).collect();
+        return open_runs(pts, &flags);
+    }
+    // Start the loop at a cusp so it unrolls into an open chain that ends
+    // where it starts, then rotate the segments back into place.
+    let idx = |k: usize| (first + k) % n;
+    let ring: Vec<P> = (0..=n).map(|k| pts[idx(k)]).collect();
+    let flags: Vec<bool> = (0..=n).map(|k| is_cusp(idx(k))).collect();
+    let mut segs = open_runs(&ring, &flags);
+    segs.rotate_right(first);
+    segs
+}
+
+/// Solves an open chain as separate Hobby paths between its cusps.
+fn open_runs(pts: &[P], cusp: &[bool]) -> Vec<Cubic> {
+    let last = pts.len() - 1;
+    let mut out = Vec::with_capacity(last);
+    let mut start = 0;
+    for k in 1..=last {
+        if k == last || cusp[k] {
+            out.extend(hobby(&pts[start..=k], false));
+            start = k;
+        }
+    }
+    out
+}
+
 /// Hobby's velocity function for tension 1: the control point distance divided
 /// by the chord length.
 fn velocity(theta: f64, phi: f64) -> f64 {
@@ -271,5 +314,38 @@ mod tests {
                 assert!(p[0].is_finite() && p[1].is_finite());
             }
         }
+    }
+    #[test]
+    fn cusps_split_the_path() {
+        let pts = [[0.0, 0.0], [10.0, 10.0], [20.0, 0.0], [30.0, 10.0]];
+        let smooth = hobby(&pts, false);
+        assert_eq!(hobby_cusps(&pts, &[false; 4], false), smooth);
+        // Cusps at the ends of an open path change nothing.
+        assert_eq!(hobby_cusps(&pts, &[true, false, false, true], false), smooth);
+        let c = hobby_cusps(&pts, &[false, false, true, false], false);
+        assert_eq!(c[..2], hobby(&pts[..3], false)[..]);
+        // The last run has 2 points: a straight line.
+        assert!(close(c[2][1], [23.33333, 3.33333], 1e-5), "{:?}", c[2]);
+    }
+
+    #[test]
+    fn cusps_on_closed_paths() {
+        let sq = [[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0]];
+        // All cusps: a polygon with straight sides, segment k from point k.
+        let c = hobby_cusps(&sq, &[true; 4], true);
+        assert_eq!(c.len(), 4);
+        for (k, seg) in c.iter().enumerate() {
+            assert_eq!(seg[0], sq[k]);
+            assert_eq!(seg[3], sq[(k + 1) % 4]);
+            let third = [
+                seg[0][0] + (seg[3][0] - seg[0][0]) / 3.0,
+                seg[0][1] + (seg[3][1] - seg[0][1]) / 3.0,
+            ];
+            assert!(close(seg[1], third, 1e-9), "{seg:?}");
+        }
+        // One cusp: the loop is one open run from that point round to itself.
+        let c = hobby_cusps(&sq, &[false, false, true, false], true);
+        let run = hobby(&[sq[2], sq[3], sq[0], sq[1], sq[2]], false);
+        assert_eq!(c, [run[2], run[3], run[0], run[1]]);
     }
 }

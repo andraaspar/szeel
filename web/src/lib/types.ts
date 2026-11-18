@@ -16,6 +16,10 @@ export interface PointInfo {
   node: Range
   xr: Range
   yr: Range
+  /** Whether the curve may turn sharply here (`cusp=#true`). */
+  cusp: boolean
+  /** The `cusp` property, if present. */
+  cr: Range | null
 }
 
 export type Role = 'draw' | 'mask' | 'defs'

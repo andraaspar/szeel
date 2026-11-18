@@ -12,7 +12,7 @@
   import { baseName, dirName } from './lib/backend'
   import { Renderer } from './lib/renderer'
   import type { Rendered } from './lib/renderer'
-  import { deletePoint, insertPoint, layoutChanges, movePoint, newPath, pathAt } from './lib/edits'
+  import { deletePoint, insertPoint, layoutChanges, movePoint, newPath, pathAt, toggleCusp } from './lib/edits'
   import type { Analysis, PointInfo } from './lib/types'
 
   // --- Examples and new scenes
@@ -241,6 +241,13 @@ path closed=#true {
     }
     editor.apply([deletePoint(text, path.points[j])])
     editor.select(path.name[0], path.name[1])
+  }
+
+  function onCusp(pi: number, j: number) {
+    if (!current()) return
+    const p = analysis.paths[pi]?.points[j]
+    if (!p) return
+    editor.apply([toggleCusp(text, p)], p.node[0], p.node[0] + 5)
   }
 
   function addPath() {
@@ -600,6 +607,7 @@ path closed=#true {
       ondragend={onDragEnd}
       oninsert={onInsert}
       ondelete={onDelete}
+      oncusp={onCusp}
       onnudge={onNudge}
     />
     {#if toast}<div class="toast">{toast}</div>{/if}
